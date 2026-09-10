@@ -1,0 +1,53 @@
+{
+  "name": "ncord",
+  "productName": "NCord",
+  "version": "1.0.0",
+  "description": "NCord - Streaming P2P, Voz, Video e Compartilhamento de Tela",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "desktop": "electron .",
+    "electron": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "peer": "^1.0.2"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.antigravity.ncord",
+    "productName": "NCord",
+    "compression": "maximum",
+    "electronLanguages": [
+      "pt-BR",
+      "en-US"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "public/icon-512.png"
+    },
+    "portable": {
+      "artifactName": "NCord.exe"
+    },
+    "files": [
+      "**/*",
+      "!dist/*",
+      "!*.bat",
+      "!chrome-extension/*",
+      "!database.json",
+      "!*.md"
+    ],
+    "asar": true
+  }
+}

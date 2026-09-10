@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>NCord</title>
+
+  <!-- Google Fonts: Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap"
+    rel="stylesheet">
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- PeerJS CDN -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+
+  <!-- Folha de Estilos Separada -->
+  <link rel="stylesheet" href="style.css">
+
+  <meta name="description"
+    content="Nosso cantinho privado de áudio, vídeo e compartilhamento de tela com qualidade Ultra HD.">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+  <meta name="theme-color" content="#120b18">
+</head>
+
+<body>
+
+  <!-- ========================================== -->
+  <!-- TELA DE ENTRADA (LOGIN CARD)               -->
+  <!-- ========================================== -->
+  <section id="login-screen" class="login-container">
+    <div class="brand-header">
+      <div class="logo-container">
+        <i data-lucide="heart"></i>
+      </div>
+      <h1>LoveChat</h1>
+      <p>Nosso cantinho privado de áudio, vídeo e tela 💕</p>
+    </div>
+
+    <!-- Seletor de Identidade do Usuário (Quem está usando este PC) -->
+    <div class="user-identity-card">
+      <div class="identity-card-header">
+        <i data-lucide="user-check"></i>
+        <span>Quem é você neste PC?</span>
+      </div>
+      <div class="identity-profile-selector">
+        <button type="button" id="profile-btn-user1" class="profile-choice-btn active" data-user="user1">
+          <div class="profile-thumb-wrapper">
+            <img id="login-avatar-user1" src="" class="profile-choice-avatar hide" alt="Nay">
+            <div id="login-default-icon-user1" class="profile-choice-icon"><i data-lucide="heart"></i></div>
+            <span class="profile-badge-dot purple"></span>
+          </div>
+          <div class="profile-choice-info">
+            <span class="profile-choice-name" id="login-name-user1">Nay 💜</span>
+            <span class="profile-choice-desc">Meu Perfil</span>
+          </div>
+          <i data-lucide="check" class="profile-check-icon"></i>
+        </button>
+
+        <button type="button" id="profile-btn-user2" class="profile-choice-btn" data-user="user2">
+          <div class="profile-thumb-wrapper">
+            <img id="login-avatar-user2" src="" class="profile-choice-avatar hide" alt="Milka">
+            <div id="login-default-icon-user2" class="profile-choice-icon"><i data-lucide="heart"></i></div>
+            <span class="profile-badge-dot pink"></span>
+          </div>
+          <div class="profile-choice-info">
+            <span class="profile-choice-name" id="login-name-user2">Milka 💖</span>
+            <span class="profile-choice-desc">Meu Perfil</span>
+          </div>
+          <i data-lucide="check" class="profile-check-icon hide"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Seletor de Modo de Conexão (Hospedar vs Conectar Remoto) -->
+    <div class="server-mode-card">
+      <div class="server-mode-tabs">
+        <button type="button" id="tab-mode-host" class="server-mode-tab-btn active">
+          <i data-lucide="server"></i>
+          <span>Hospedar (Meu PC)</span>
+        </button>
+        <button type="button" id="tab-mode-remote" class="server-mode-tab-btn">
+          <i data-lucide="wifi"></i>
+          <span>Conectar no Amor</span>
+        </button>
+      </div>
+
+      <!-- Modo Hospedar: Mostra IP do ZeroTier para compartilhar -->
+      <div id="panel-mode-host" class="server-mode-subpanel">
+        <div class="server-ip-pill">
+          <span class="ip-title">Seu IP ZeroTier:</span>
+          <span id="lbl-display-my-ip" class="ip-addr">Detectando IP...</span>
+          <button type="button" id="btn-copy-my-ip" class="btn-copy-ip-pill" title="Copiar IP para mandar pro amor">
+            <i data-lucide="copy"></i>
+          </button>
+        </div>
+        <div class="server-status-pill" id="server-status-box">
+          <span class="status-indicator-dot" id="status-server-dot"></span>
+          <span id="lbl-server-status">Iniciando Servidor...</span>
+        </div>
+        <button type="button" id="btn-request-firewall" class="btn-firewall-action" title="Garantir liberação no Firewall do Windows">
+          <i data-lucide="shield-check"></i>
+          <span id="lbl-firewall-action">Liberar Firewall do Windows</span>
+        </button>
+      </div>
+
+      <!-- Modo Conectar Remoto: Campo para inserir IP do parceiro -->
+      <div id="panel-mode-remote" class="server-mode-subpanel hide">
+        <div class="remote-ip-box">
+          <input type="text" id="remote-ip-input" placeholder="Digite o IP do ZeroTier do Amor" autocomplete="off">
+          <button type="button" id="btn-apply-remote-ip" class="btn-connect-ip" title="Conectar ao IP">
+            <span>Ir</span>
+            <i data-lucide="arrow-right"></i>
+          </button>
+        </div>
+        <div class="server-status-pill hide" id="remote-status-box">
+          <span class="status-indicator-dot" id="status-remote-dot"></span>
+          <span id="lbl-remote-status">Conectado ao Servidor do Amor 💖</span>
+        </div>
+      </div>
+    </div>
+
+    <form id="join-form">
+      <!-- Identificador padrão da sala -->
+      <input type="hidden" id="room-input" value="lovechat">
+
+      <button type="submit" class="btn-connect" id="btn-submit">
+        <i data-lucide="sparkles"></i>
+        <span>Entrar no Nosso Espaço</span>
+        <i data-lucide="arrow-right"></i>
+      </button>
+    </form>
+
+    <div id="login-error" class="error-box hide">
+      <i data-lucide="alert-circle"></i>
+      <span id="error-text">Mensagem de erro.</span>
+    </div>
+  </section>
+
+  <!-- ========================================== -->
+  <!-- TELA DA CHAMADA (ROOM GRID)                -->
+  <!-- ========================================== -->
+  <section id="room-screen" class="room-layout hide">
+    <!-- Backdrop da Sidebar no Mobile -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+    <!-- Barra Lateral -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <h2><span id="room-title-lbl">Nosso Cantinho 💖</span></h2>
+        <div class="sidebar-header-actions">
+          <button id="btn-toggle-sidebar" class="btn-sidebar-toggle"
+            title="Recolher Barra Lateral (Modo Teatro - Tecla T)">
+            <i data-lucide="panel-left-close"></i>
+          </button>
+          <button id="btn-close-sidebar" class="btn-close-sidebar btn-mobile-only" title="Fechar Menu">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-content">
+        <!-- Card de Convite do Casal -->
+        <div class="invite-card-sidebar">
+          <p>Convide seu amor para a call 💕</p>
+          <button id="btn-copy-invite-sidebar" class="btn-sidebar-invite">
+            <i data-lucide="link"></i> Copiar Link
+          </button>
+        </div>
+
+        <!-- Canais estilo Discord -->
+        <div class="channel-section">
+          <div class="section-title">Canais de Voz</div>
+          <div class="voice-channel-item active">
+            <i data-lucide="volume-2" class="voice-channel-icon"></i>
+            <span class="voice-channel-name">Nosso Cantinho</span>
+          </div>
+
+          <!-- Card de Transmissão Ativa na Sidebar (Discord Live Stream UX) -->
+          <div class="sidebar-stream-card hide" id="sidebar-stream-card">
+            <div class="stream-card-header">
+              <span class="live-pill"><span class="pulse-dot"></span> AO VIVO</span>
+              <span class="stream-quality-pill" id="sidebar-stream-quality">35 Mbps</span>
+            </div>
+            <div class="stream-card-body">
+              <div class="stream-icon-box">
+                <i data-lucide="monitor"></i>
+              </div>
+              <div class="stream-card-meta">
+                <span class="stream-card-owner" id="sidebar-stream-owner">Transmitindo Tela</span>
+                <span class="stream-card-hint">Clique para assistir em destaque</span>
+              </div>
+            </div>
+            <button class="btn-sidebar-watch" id="btn-sidebar-watch" title="Assistir Transmissão em Destaque">
+              <i data-lucide="play"></i>
+              <span>Assistir Transmissão</span>
+            </button>
+          </div>
+
+          <!-- Lista de membros conectados no canal com recuo -->
+          <div class="voice-members-list">
+            <div class="member-item">
+              <div class="member-info">
+                <!-- Wrapper do Avatar estilo Discord -->
+                <div class="member-avatar-wrapper">
+                  <div class="sidebar-default-avatar">
+                    <i data-lucide="heart" id="local-sidebar-default-icon"></i>
+                  </div>
+                  <img id="local-sidebar-avatar-img" class="sidebar-avatar-img hide" src="" alt="Avatar">
+                  <span id="local-avatar-dot" class="avatar-dot"
+                    style="background-color: var(--accent-purple); box-shadow: 0 0 8px var(--accent-purple);"></span>
+                </div>
+                <span id="local-name-lbl" class="editable-name">Você 💜</span>
+                <span class="member-live-badge hide" id="local-live-badge"><i data-lucide="tv"></i> AO VIVO</span>
+                <button id="btn-edit-name" class="btn-edit-name" title="Mudar meu apelido">
+                  <i data-lucide="edit-3"></i>
+                </button>
+                <button id="btn-edit-avatar" class="btn-edit-avatar" title="Mudar foto de perfil">
+                  <i data-lucide="image"></i>
+                </button>
+                <input type="file" id="avatar-input" accept="image/*" class="hide">
+              </div>
+              <div class="member-status-icons">
+                <span id="status-local-mic-wrapper"><i data-lucide="mic-off" class="muted"></i></span>
+                <span id="status-local-video-wrapper"><i data-lucide="video-off" class="muted"></i></span>
+              </div>
+            </div>
+
+            <div class="member-item" id="remote-member-item">
+              <div class="member-info">
+                <!-- Wrapper do Avatar estilo Discord para o remoto -->
+                <div class="member-avatar-wrapper">
+                  <div class="sidebar-default-avatar">
+                    <i data-lucide="heart" id="remote-sidebar-default-icon"></i>
+                  </div>
+                  <img id="remote-sidebar-avatar-img" class="sidebar-avatar-img hide" src="" alt="Avatar">
+                  <span class="avatar-dot offline" id="remote-status-dot"></span>
+                </div>
+                <span id="remote-name-lbl">Aguardando Meu Amor...</span>
+                <span class="member-live-badge hide" id="remote-live-badge"><i data-lucide="tv"></i> AO VIVO</span>
+              </div>
+              <div class="member-status-icons hide" id="remote-status-icons">
+                <span id="status-remote-mic-wrapper"><i data-lucide="mic"></i></span>
+                <span id="status-remote-video-wrapper"><i data-lucide="video"></i></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quadro do Casal (Persistência em JSON) -->
+        <div class="couple-board">
+          <div class="section-title">Quadro do Casal 📝</div>
+          <div class="board-input-wrapper">
+            <input type="text" id="board-note-input" placeholder="Adicionar segredo/desafio..." autocomplete="off">
+            <button id="btn-add-note" title="Adicionar no Quadro">
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
+          <ul id="board-notes-list" class="board-notes-list">
+            <!-- Renderizado dinamicamente pelo JS -->
+          </ul>
+        </div>
+      </div>
+
+      <!-- Status de Conexão -->
+      <div class="connection-status-panel">
+        <div class="status-badge">
+          <span class="status-circle waiting" id="con-circle"></span>
+          <span id="con-text-lbl">Aguardando par</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Área de Exibição Principal -->
+    <main class="stream-area">
+      <!-- Botão Flutuante para Expandir Sidebar quando Recolhida -->
+      <button id="btn-expand-sidebar" class="btn-floating-expand-sidebar hide" title="Expandir Barra Lateral (Tecla T)">
+        <i data-lucide="panel-left-open"></i>
+        <span>Mostrar Barra Lateral</span>
+      </button>
+
+      <!-- Container Flexível dos Vídeos -->
+      <div class="videos-container" id="videos-grid-element">
+
+        <!-- Bloco Compartilhamento de Tela -->
+        <div id="screen-share-card" class="video-card hide" data-stream-id="screen">
+          <video id="screen-video" autoplay playsinline muted class="screen-share"></video>
+
+          <!-- Top Bar com Status e Badge -->
+          <div class="stream-top-bar">
+            <div class="stream-live-tag">
+              <span class="pulse-dot"></span> AO VIVO
+            </div>
+            <span id="screen-owner-lbl" class="stream-owner-name">Compartilhamento de Tela</span>
+            <span id="screen-quality-badge" class="screen-quality-badge">35 Mbps • Ultra HD</span>
+          </div>
+
+          <!-- Barra de Controles Rápidos da Transmissão (Hover) -->
+          <div class="stream-controls-overlay">
+            <!-- Controle de Áudio / Volume da Tela -->
+            <div class="stream-audio-control" id="stream-audio-control" title="Volume da Transmissão">
+              <button id="btn-stream-vol-toggle" class="btn-stream-action" title="Mutar/Desmutar Áudio da Transmissão">
+                <i data-lucide="volume-2" id="stream-vol-icon"></i>
+              </button>
+              <input type="range" id="stream-vol-slider" min="0" max="1" step="0.05" value="1"
+                class="stream-vol-slider">
+            </div>
+
+            <!-- Ajustar Proporção da Tela (Original / Preencher) -->
+            <button id="btn-stream-fit" class="btn-stream-action" title="Ajustar Proporção (Sem Cortes / Preencher)">
+              <i data-lucide="scan"></i>
+            </button>
+
+            <!-- Modo Teatro (Ocultar Sidebar) -->
+            <button id="btn-stream-theater" class="btn-stream-action" title="Modo Teatro / Ocultar Barra (Tecla T)">
+              <i data-lucide="panel-left-close"></i>
+            </button>
+
+            <!-- Tela Cheia Exclusiva da Transmissão -->
+            <button id="btn-screen-card-fullscreen" class="btn-stream-action btn-fullscreen-spotlight"
+              title="Tela Cheia (Atalho: Tecla F ou Duplo Clique)">
+              <i data-lucide="maximize"></i>
+            </button>
+          </div>
+
+          <!-- Botão Flutuante de Sair de Tela Cheia -->
+          <button id="btn-exit-card-fullscreen" class="btn-exit-fullscreen hide"
+            title="Sair da Tela Cheia (ESC ou Tecla F)">
+            <i data-lucide="minimize"></i>
+            <span>Sair da Tela Cheia</span>
+          </button>
+        </div>
+
+        <!-- Bloco Câmera Local -->
+        <div id="local-video-card" class="video-card" data-stream-id="local">
+          <video id="local-video" autoplay playsinline muted class="hide"></video>
+          <div class="avatar-placeholder" id="local-avatar">
+            <img id="local-avatar-bg" class="avatar-backdrop-img hide" src="" alt="Backdrop">
+            <div class="avatar-frame">
+              <img id="local-avatar-img" class="avatar-img hide" src="" alt="Avatar">
+              <i data-lucide="heart" id="local-avatar-icon"></i>
+            </div>
+          </div>
+          <div class="video-info-overlay">
+            <span>Você</span>
+            <div class="overlay-icons">
+              <i data-lucide="mic-off" id="overlay-local-mic"></i>
+              <i data-lucide="video-off" id="overlay-local-video"></i>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bloco Câmera Remota -->
+        <div id="remote-video-card" class="video-card" data-stream-id="remote">
+          <video id="remote-video" autoplay playsinline class="hide"></video>
+          <div class="avatar-placeholder" id="remote-avatar">
+            <img id="remote-avatar-bg" class="avatar-backdrop-img hide" src="" alt="Backdrop">
+            <div class="avatar-frame">
+              <img id="remote-avatar-img" class="avatar-img hide" src="" alt="Avatar">
+              <i data-lucide="heart" id="remote-avatar-icon"></i>
+            </div>
+          </div>
+          <div class="video-info-overlay">
+            <span id="remote-video-name-lbl">Meu Amor</span>
+            <div class="overlay-icons">
+              <i data-lucide="mic-off" id="overlay-remote-mic" class="hide"></i>
+              <i data-lucide="video-off" id="overlay-remote-video" class="hide"></i>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Barra de Controle Inferior -->
+      <footer class="controls-panel">
+        <button id="btn-open-sidebar" class="btn-control btn-mobile-only" title="Quadro do Casal & Membros">
+          <i data-lucide="menu"></i>
+        </button>
+        <button id="btn-mic" class="btn-control muted" title="Mutar/Desmutar Microfone (Atalho: M)">
+          <i data-lucide="mic-off"></i>
+        </button>
+        <button id="btn-video" class="btn-control muted" title="Ativar/Desativar Webcam">
+          <i data-lucide="video-off"></i>
+        </button>
+
+        <button id="btn-screen" class="btn-control" title="Compartilhar Tela">
+          <i data-lucide="monitor"></i>
+        </button>
+        <button id="btn-quality" class="btn-control" title="Ajustes de Qualidade (Sem Limites / 4K / 60 FPS)">
+          <i data-lucide="sparkles"></i>
+        </button>
+        <button id="btn-fullscreen" class="btn-control" title="Tela Cheia">
+          <i data-lucide="maximize"></i>
+        </button>
+        <button id="btn-link" class="btn-control" title="Copiar Link de Convite">
+          <i data-lucide="link"></i>
+        </button>
+        <button id="btn-disconnect" class="btn-control btn-leave" title="Sair do Nosso Espaço">
+          <i data-lucide="phone-off"></i>
+        </button>
+      </footer>
+
+      <!-- Menu Popover de Qualidade de Transmissão -->
+      <div id="quality-menu" class="quality-menu-popover hide">
+        <div class="quality-header">
+          <div class="quality-title">
+            <i data-lucide="sparkles"></i>
+            <span>Qualidade de Transmissão</span>
+          </div>
+          <button id="btn-close-quality" class="btn-close-quality" title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <p class="quality-subtitle">Otimizado para ZeroTier / Rede sem limite de banda</p>
+
+        <div class="quality-options-list">
+          <button class="quality-option active" data-quality="ultra">
+            <div class="quality-opt-icon"><i data-lucide="zap"></i></div>
+            <div class="quality-opt-info">
+              <div class="quality-opt-title">Ultra HD (Sem Limites) <span class="badge-recom">Ativo</span></div>
+              <div class="quality-opt-desc">35 Mbps • Até 4K 60 FPS • Zero compressão ou blocos</div>
+            </div>
+            <i data-lucide="check" class="quality-check-icon"></i>
+          </button>
+
+          <button class="quality-option" data-quality="cinema">
+            <div class="quality-opt-icon"><i data-lucide="clapperboard"></i></div>
+            <div class="quality-opt-info">
+              <div class="quality-opt-title">Modo Cinema (Nitidez Máxima)</div>
+              <div class="quality-opt-desc">20 Mbps • 1080p • Foco em detalhes finos para filmes e animes</div>
+            </div>
+            <i data-lucide="check" class="quality-check-icon hide"></i>
+          </button>
+
+          <button class="quality-option" data-quality="gamer">
+            <div class="quality-opt-icon"><i data-lucide="gamepad-2"></i></div>
+            <div class="quality-opt-info">
+              <div class="quality-opt-title">Modo Gamer (60 FPS Fluido)</div>
+              <div class="quality-opt-desc">25 Mbps • 60 FPS • Prioriza movimentação rápida e responsiva</div>
+            </div>
+            <i data-lucide="check" class="quality-check-icon hide"></i>
+          </button>
+
+          <button class="quality-option" data-quality="balanced">
+            <div class="quality-opt-icon"><i data-lucide="sliders"></i></div>
+            <div class="quality-opt-info">
+              <div class="quality-opt-title">Modo Equilibrado</div>
+              <div class="quality-opt-desc">8 Mbps • 1080p 30 FPS • Mais leve se a conexão oscilar</div>
+            </div>
+            <i data-lucide="check" class="quality-check-icon hide"></i>
+          </button>
+        </div>
+
+        <div class="quality-badge-footer">
+          <span id="current-quality-status">🚀 Perfil Ativo: <strong>Ultra HD Sem Limites (35 Mbps)</strong></span>
+        </div>
+      </div>
+
+      <!-- Notificação Toast -->
+      <div id="toast" class="toast-msg hide">
+        <i data-lucide="info" id="toast-icon"></i>
+        <span id="toast-text">Notificação</span>
+      </div>
+
+    </main>
+  </section>
+
+  <!-- Modal Nativo de Compartilhamento de Tela (Overlay Global Centralizado) -->
+  <div id="electron-screen-modal-overlay" class="modal-overlay-backdrop hide">
+    <div id="electron-screen-modal" class="electron-picker-dialog hide">
+      <div class="quality-header">
+        <div class="quality-title">
+          <i data-lucide="screen-share"></i>
+          <span>Compartilhar sua Tela</span>
+        </div>
+        <button id="btn-close-screen-modal" class="btn-close-quality" title="Fechar (ESC)">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+
+      <!-- Abas: Telas vs Janelas / Aplicativos -->
+      <div class="screen-picker-tabs">
+        <button id="tab-screen-applications" class="screen-tab-btn active" type="button">
+          <i data-lucide="layout-grid"></i>
+          <span>Aplicativos / Janelas</span>
+        </button>
+        <button id="tab-screen-displays" class="screen-tab-btn" type="button">
+          <i data-lucide="monitor"></i>
+          <span>Telas Inteiras</span>
+        </button>
+      </div>
+
+      <!-- Grade de fontes disponíveis -->
+      <div id="screen-sources-grid" class="screen-sources-container">
+        <!-- Cards com thumbnails injetados via JS -->
+      </div>
+
+      <!-- Controle de Áudio da Janela / Aplicação -->
+      <div class="screen-audio-toggle-card" id="screen-audio-toggle-container">
+        <div class="screen-audio-toggle-info">
+          <i data-lucide="volume-2" id="icon-screen-audio"></i>
+          <div>
+            <div class="audio-toggle-title" id="lbl-audio-toggle-title">Transmitir Áudio</div>
+            <div class="audio-toggle-desc" id="lbl-audio-toggle-desc">Transmite o som do jogo/aplicativo. (Dica: no Discord, use fone/saída separada se não quiser voz na stream)</div>
+          </div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="chk-stream-audio" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="screen-picker-actions">
+        <button id="btn-cancel-screen-modal" class="btn-picker-cancel" type="button">Cancelar</button>
+        <button id="btn-confirm-screen-modal" class="btn-picker-confirm" type="button" disabled>Transmitir ao Vivo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lógica Externa Separada -->
+  <script src="app.js"></script>
+</body>
+
+</html>
