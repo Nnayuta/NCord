@@ -86,26 +86,30 @@ function readDB() {
     profiles: {
       user1: {
         id: "user1",
-        name: "Nay 💜",
+        name: "Usuário 1",
         avatar: null
       },
       user2: {
         id: "user2",
-        name: "Milka 💖",
+        name: "Usuário 2",
         avatar: null
       }
     },
-    hostName: "Nay 💜",
-    guestName: "Milka 💖",
+    hostName: "Usuário 1",
+    guestName: "Usuário 2",
     notes: [
-      { id: 1, text: "Fazer uma noite de massagem relaxante 💆‍♀️💆‍♀️", category: "soft" },
-      { id: 2, text: "Preparar um jantar surpresa à luz de velas 🕯️🍷", category: "romantic" },
-      { id: 3, text: "Ver um filme juntinhos embaixo do cobertor 🎬🍿", category: "cozy" }
+      { id: 1, text: "Bem-vindo ao NCord! Adicione notas e recados aqui ✨", category: "cozy" },
+      { id: 2, text: "Clique para riscar ou adicione novos planos no botão acima 📝", category: "soft" }
     ]
   };
 
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+    try {
+      fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2), 'utf-8');
+      console.log(`[DB] database.json criado com sucesso em: ${DB_FILE}`);
+    } catch (err) {
+      console.warn('[DB] Não foi possível salvar o arquivo inicial:', err);
+    }
     return initialData;
   }
   try {
@@ -117,23 +121,23 @@ function readDB() {
       data.profiles = {
         user1: {
           id: "user1",
-          name: data.hostName || "Nay 💜",
+          name: data.hostName || "Usuário 1",
           avatar: data.hostAvatar || null
         },
         user2: {
           id: "user2",
-          name: data.guestName || "Milka 💖",
+          name: data.guestName || "Usuário 2",
           avatar: data.guestAvatar || null
         }
       };
       changed = true;
     } else {
       if (!data.profiles.user1) {
-        data.profiles.user1 = { id: "user1", name: data.hostName || "Nay 💜", avatar: data.hostAvatar || null };
+        data.profiles.user1 = { id: "user1", name: data.hostName || "Usuário 1", avatar: data.hostAvatar || null };
         changed = true;
       }
       if (!data.profiles.user2) {
-        data.profiles.user2 = { id: "user2", name: data.guestName || "Milka 💖", avatar: data.guestAvatar || null };
+        data.profiles.user2 = { id: "user2", name: data.guestName || "Usuário 2", avatar: data.guestAvatar || null };
         changed = true;
       }
     }

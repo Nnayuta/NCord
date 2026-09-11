@@ -5,6 +5,57 @@ const http = require('http');
 const { exec } = require('child_process');
 
 // ==========================================
+// CAPTURA EXCLUSIVA DE ÁUDIO POR JANELA (WASAPI PROCESS LOOPBACK)
+// ==========================================
+let LoopbackCapture = null;
+let GetWindowThreadProcessId = null;
+let activeProcessCapture = null;
+
+try {
+  const loopbackModule = require('loopback-capture');
+  LoopbackCapture = loopbackModule.LoopbackCapture;
+  console.log('[Electron] Módulo WASAPI LoopbackCapture carregado com sucesso.');
+} catch (err) {
+  console.warn('[Electron] Aviso: Não foi possível carregar loopback-capture:', err.message);
+}
+
+try {
+  const koffi = require('koffi');
+  const user32 = koffi.load('user32.dll');
+  GetWindowThreadProcessId = user32.func('uint32 __stdcall GetWindowThreadProcessId(void *hWnd, _Out_ uint32 *lpdwProcessId)');
+  console.log('[Electron] Módulo Koffi (GetWindowThreadProcessId) carregado com sucesso.');
+} catch (err) {
+  console.warn('[Electron] Aviso: Não foi possível carregar koffi para resolução de PID:', err.message);
+}
+
+function getPidFromHwnd(hwndNumber) {
+  if (!GetWindowThreadProcessId || !hwndNumber) return 0;
+  try {
+    const koffi = require('koffi');
+    const hwndPtr = koffi.as(BigInt(hwndNumber), 'void *');
+    const pidOut = [0];
+    GetWindowThreadProcessId(hwndPtr, pidOut);
+    return pidOut[0] || 0;
+  } catch (err) {
+    console.warn(`[Electron] Falha ao resolver PID para HWND ${hwndNumber}:`, err.message);
+    return 0;
+  }
+}
+
+function stopActiveProcessAudio() {
+  if (activeProcessCapture) {
+    try {
+      console.log('[Electron] Parando captura exclusiva de áudio de processo ativa...');
+      activeProcessCapture.stop();
+    } catch (err) {
+      console.warn('[Electron] Erro ao interromper LoopbackCapture:', err);
+    }
+    activeProcessCapture = null;
+  }
+}
+
+
+// ==========================================
 // CONFIGURAÇÃO DE DIRETÓRIO GRAVÁVEL (PARA .EXE)
 // ==========================================
 const userDataDir = app.getPath('userData');
@@ -15,11 +66,44 @@ try {
     fs.mkdirSync(userDataDir, { recursive: true });
   }
 
-  // Migrar database.json existente
+  // Migrar ou sincronizar database.json existente
   const localDb = path.join(__dirname, 'database.json');
   const targetDb = path.join(userDataDir, 'database.json');
   if (fs.existsSync(localDb) && !fs.existsSync(targetDb)) {
     fs.copyFileSync(localDb, targetDb);
+  } else if (fs.existsSync(targetDb)) {
+    try {
+      const targetContent = JSON.parse(fs.readFileSync(targetDb, 'utf-8'));
+      const candidates = [
+        path.join(__dirname, 'database.json'),
+        path.join(process.cwd(), 'database.json')
+      ];
+      for (const cand of candidates) {
+        if (fs.existsSync(cand) && cand !== targetDb) {
+          const candContent = JSON.parse(fs.readFileSync(cand, 'utf-8'));
+          if (candContent && candContent.profiles) {
+            let updated = false;
+            if (!targetContent.profiles) targetContent.profiles = {};
+            ['user1', 'user2'].forEach((u) => {
+              if (candContent.profiles[u] && candContent.profiles[u].avatar && (!targetContent.profiles[u] || !targetContent.profiles[u].avatar)) {
+                targetContent.profiles[u] = { ...(targetContent.profiles[u] || {}), ...candContent.profiles[u] };
+                updated = true;
+              }
+              if (candContent.profiles[u] && candContent.profiles[u].name && (!targetContent.profiles[u] || targetContent.profiles[u].name === 'Usuário 1' || targetContent.profiles[u].name === 'Usuário 2')) {
+                targetContent.profiles[u].name = candContent.profiles[u].name;
+                updated = true;
+              }
+            });
+            if (updated) {
+              fs.writeFileSync(targetDb, JSON.stringify(targetContent, null, 2), 'utf-8');
+              console.log('[Electron] Dados de perfis sincronizados com sucesso para userData/database.json');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[Electron] Aviso ao sincronizar dados de perfil:', e);
+    }
   }
 
   // Migrar certificados existentes
@@ -240,9 +324,15 @@ async function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    stopActiveProcessAudio();
     mainWindow = null;
   });
 }
+
+app.on('will-quit', () => {
+  stopActiveProcessAudio();
+});
+
 
 // ==========================================
 // 3. PERMISSÕES E SEGURANÇA
@@ -267,6 +357,7 @@ app.whenReady().then(() => {
 
   // Manipulador de captura de tela nativo
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    stopActiveProcessAudio();
     if (pendingDisplayMediaCallback) {
       try { pendingDisplayMediaCallback(null); } catch (e) {}
     }
@@ -300,13 +391,22 @@ ipcMain.handle('get-desktop-sources', async () => {
     });
     cachedRawDesktopSources = sources;
 
-    return sources.map((source) => ({
-      id: source.id,
-      name: source.name,
-      thumbnail: source.thumbnail.toDataURL(),
-      appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
-      isScreen: source.id.startsWith('screen:')
-    }));
+    return sources.map((source) => {
+      const isWindow = source.id.startsWith('window:');
+      let pid = 0;
+      if (isWindow) {
+        const hwnd = parseInt(source.id.split(':')[1], 10);
+        pid = getPidFromHwnd(hwnd);
+      }
+      return {
+        id: source.id,
+        name: source.name,
+        thumbnail: source.thumbnail.toDataURL(),
+        appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
+        isScreen: source.id.startsWith('screen:'),
+        pid
+      };
+    });
   } catch (err) {
     console.error('[Electron] Erro ao listar fontes de desktop:', err);
     return [];
@@ -402,13 +502,51 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
       }
 
       if (chosen) {
-        console.log(`[Electron] Fonte confirmada para transmissão: [${chosen.id}] "${chosen.name}" (tipo: ${chosen.id.startsWith('window:') ? 'JANELA' : 'TELA'}, áudio: ${withAudio ? 'loopback' : 'desativado'})`);
+        stopActiveProcessAudio();
+
+        const isWindowChoice = chosen.id.startsWith('window:');
         const streamOptions = { video: chosen };
+        let hasProcessAudio = false;
+
         if (withAudio) {
-          streamOptions.audio = 'loopback';
+          if (isWindowChoice && LoopbackCapture) {
+            const rawHwnd = chosen.id.split(':')[1];
+            const hwndNum = parseInt(rawHwnd, 10);
+            const targetPid = getPidFromHwnd(hwndNum);
+
+            if (targetPid > 0) {
+              console.log(`[Electron] Iniciando captura exclusiva de áudio WASAPI para PID ${targetPid} (HWND ${hwndNum}, "${chosen.name}")...`);
+              try {
+                activeProcessCapture = new LoopbackCapture();
+                activeProcessCapture.start(targetPid, true, (chunk) => {
+                  if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.send('process-audio-chunk', chunk);
+                  }
+                });
+                hasProcessAudio = true;
+                console.log(`[Electron] Captura de áudio de processo ativa com sucesso para o PID ${targetPid}!`);
+              } catch (captureErr) {
+                console.error('[Electron] Falha ao iniciar LoopbackCapture no PID alvo, usando fallback geral:', captureErr);
+                activeProcessCapture = null;
+                streamOptions.audio = 'loopback';
+              }
+            } else {
+              console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando fallback loopback.`);
+              streamOptions.audio = 'loopback';
+            }
+          } else {
+            // Telas inteiras capturam áudio do sistema todo
+            streamOptions.audio = 'loopback';
+          }
         }
+
+        console.log(`[Electron] Fonte confirmada para transmissão: [${chosen.id}] "${chosen.name}" (tipo: ${isWindowChoice ? 'JANELA' : 'TELA'}, áudio: ${hasProcessAudio ? 'EXCLUSIVO-PROCESSO (WASAPI)' : (streamOptions.audio ? 'LOOPBACK-SISTEMA' : 'DESATIVADO')})`);
         cb(streamOptions);
-        return { success: true };
+        return {
+          success: true,
+          isWindow: isWindowChoice,
+          hasProcessAudio
+        };
       } else {
         console.warn('[Electron] Nenhuma fonte correspondente encontrada. Cancelando.');
         cb(null);
@@ -424,11 +562,17 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
 });
 
 ipcMain.handle('cancel-desktop-source', () => {
+  stopActiveProcessAudio();
   if (pendingDisplayMediaCallback) {
     const cb = pendingDisplayMediaCallback;
     pendingDisplayMediaCallback = null;
     try { cb(null); } catch (e) {}
   }
+  return { success: true };
+});
+
+ipcMain.handle('stop-process-audio', () => {
+  stopActiveProcessAudio();
   return { success: true };
 });
 

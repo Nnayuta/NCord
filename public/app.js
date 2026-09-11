@@ -188,7 +188,6 @@ const btnMic = document.getElementById('btn-mic');
 const btnVideo = document.getElementById('btn-video');
 const btnScreen = document.getElementById('btn-screen');
 const btnFullscreen = document.getElementById('btn-fullscreen');
-const btnLink = document.getElementById('btn-link');
 const btnDisconnect = document.getElementById('btn-disconnect');
 const btnQuality = document.getElementById('btn-quality');
 const qualityMenu = document.getElementById('quality-menu');
@@ -232,19 +231,19 @@ const overlayRemoteVideo = document.getElementById('overlay-remote-video');
 lucide.createIcons();
 
 // ==========================================
-// IDENTIFICAÇÃO FIXA DO USUÁRIO (PERFIL NAY / MILKA)
+// IDENTIFICAÇÃO FIXA DO USUÁRIO (PERFIS)
 // ==========================================
-let activeProfileId = 'user1'; // 'user1' (Nay) | 'user2' (Milka)
+let activeProfileId = 'user1'; // 'user1' | 'user2'
 let cachedProfiles = {
-  user1: { id: 'user1', name: 'Nay 💜', avatar: null },
-  user2: { id: 'user2', name: 'Milka 💖', avatar: null }
+  user1: { id: 'user1', name: 'Usuário 1', avatar: null },
+  user2: { id: 'user2', name: 'Usuário 2', avatar: null }
 };
 let remoteUserProfile = null;
 
 function getMyUserProfile() {
   return cachedProfiles[activeProfileId] || {
     id: activeProfileId,
-    name: activeProfileId === 'user1' ? 'Nay 💜' : 'Milka 💖',
+    name: activeProfileId === 'user1' ? 'Usuário 1' : 'Usuário 2',
     avatar: null
   };
 }
@@ -253,7 +252,7 @@ function getOtherUserProfile() {
   const otherId = activeProfileId === 'user1' ? 'user2' : 'user1';
   return cachedProfiles[otherId] || {
     id: otherId,
-    name: otherId === 'user1' ? 'Nay 💜' : 'Milka 💖',
+    name: otherId === 'user1' ? 'Usuário 1' : 'Usuário 2',
     avatar: null
   };
 }
@@ -265,6 +264,15 @@ function selectActiveProfile(profileId) {
     window.electronAPI.saveUserProfile(profileId).catch(() => {});
   }
   updateLoginProfilesUI();
+
+  // Atualizar também na sala se já estiver aberta
+  const myProfile = getMyUserProfile();
+  if (localNameLbl) localNameLbl.textContent = myProfile.name;
+  updateLocalAvatarUI(myProfile.avatar);
+
+  const defaultRemote = getOtherUserProfile();
+  if (remoteNameLbl) remoteNameLbl.textContent = defaultRemote.name;
+  updateRemoteAvatarUI(defaultRemote.avatar);
 }
 
 function updateLoginProfilesUI() {
@@ -274,6 +282,8 @@ function updateLoginProfilesUI() {
   const p2Avatar = document.getElementById('login-avatar-user2');
   const p1Icon = document.getElementById('login-default-icon-user1');
   const p2Icon = document.getElementById('login-default-icon-user2');
+  const desc1 = document.getElementById('login-desc-user1');
+  const desc2 = document.getElementById('login-desc-user2');
 
   if (p1Name && cachedProfiles.user1.name) p1Name.textContent = cachedProfiles.user1.name;
   if (p2Name && cachedProfiles.user2.name) p2Name.textContent = cachedProfiles.user2.name;
@@ -304,27 +314,132 @@ function updateLoginProfilesUI() {
   const btn1 = document.getElementById('profile-btn-user1');
   const btn2 = document.getElementById('profile-btn-user2');
   if (btn1 && btn2) {
+    const chk1 = btn1.querySelector('.profile-check-icon');
+    const chk2 = btn2.querySelector('.profile-check-icon');
+
     if (activeProfileId === 'user1') {
       btn1.classList.add('active');
       btn2.classList.remove('active');
-      const chk1 = btn1.querySelector('.profile-check-icon');
-      const chk2 = btn2.querySelector('.profile-check-icon');
       if (chk1) chk1.classList.remove('hide');
       if (chk2) chk2.classList.add('hide');
+      if (desc1) desc1.textContent = 'Selecionado ✓';
+      if (desc2) desc2.textContent = 'Clique para usar';
     } else {
       btn2.classList.add('active');
       btn1.classList.remove('active');
-      const chk1 = btn1.querySelector('.profile-check-icon');
-      const chk2 = btn2.querySelector('.profile-check-icon');
       if (chk1) chk1.classList.add('hide');
       if (chk2) chk2.classList.remove('hide');
+      if (desc1) desc1.textContent = 'Clique para usar';
+      if (desc2) desc2.textContent = 'Selecionado ✓';
     }
   }
 }
 
+function handleLoginAvatarUpload(file, profileId) {
+  if (!file || !file.type.startsWith('image/')) {
+    showToast('Por favor, selecione um arquivo de imagem.', 'info');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 640;
+      canvas.height = 640;
+
+      const size = Math.min(img.width, img.height);
+      const sx = (img.width - size) / 2;
+      const sy = (img.height - size) / 2;
+
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, 640, 640);
+      const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+
+      if (cachedProfiles[profileId]) {
+        cachedProfiles[profileId].avatar = compressedBase64;
+      }
+      updateLoginProfilesUI();
+
+      // Salva no banco de dados local
+      fetch(apiUrl('/api/db'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileUpdate: {
+            id: profileId,
+            avatar: compressedBase64
+          }
+        })
+      }).then(() => {
+        showToast(`Foto de perfil atualizada com sucesso! 📸`, 'info');
+      }).catch(err => {
+        console.error('Erro ao salvar avatar:', err);
+      });
+
+      if (profileId === activeProfileId) {
+        updateLocalAvatarUI(compressedBase64);
+      }
+    };
+    img.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function handleLoginNameEdit(profileId) {
+  const current = cachedProfiles[profileId]?.name || (profileId === 'user1' ? 'Usuário 1' : 'Usuário 2');
+  const nameEl = document.getElementById(`login-name-${profileId}`);
+  if (!nameEl) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current;
+  input.className = 'edit-name-input';
+  input.maxLength = 18;
+  input.style.fontSize = '0.85rem';
+  input.style.padding = '2px 6px';
+  input.style.maxWidth = '110px';
+
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const save = () => {
+    const val = input.value.trim() || current;
+    input.replaceWith(nameEl);
+    nameEl.textContent = val;
+
+    if (cachedProfiles[profileId]) {
+      cachedProfiles[profileId].name = val;
+    }
+    updateLoginProfilesUI();
+
+    fetch(apiUrl('/api/db'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profileUpdate: {
+          id: profileId,
+          name: val
+        }
+      })
+    }).catch(err => console.error('Erro ao salvar nome:', err));
+
+    if (profileId === activeProfileId && localNameLbl) {
+      localNameLbl.textContent = val;
+    }
+  };
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') save();
+  });
+  input.addEventListener('blur', save);
+}
+
 async function loadProfilesFromDatabase() {
   try {
-    const res = await fetch(apiUrl('/api/db'));
+    const res = await fetch(apiUrl('/api/db'), { signal: AbortSignal.timeout(3000) });
     const db = await res.json();
     if (db.profiles) {
       if (db.profiles.user1) cachedProfiles.user1 = { ...cachedProfiles.user1, ...db.profiles.user1 };
@@ -336,8 +451,21 @@ async function loadProfilesFromDatabase() {
       if (db.guestAvatar) cachedProfiles.user2.avatar = db.guestAvatar;
     }
     updateLoginProfilesUI();
+    if (window.lucide) window.lucide.createIcons();
   } catch (e) {
-    console.warn('Aviso ao carregar perfis do banco:', e);
+    console.warn('Aviso ao carregar perfis do banco (tentando novamente em breve):', e);
+    setTimeout(async () => {
+      try {
+        const res2 = await fetch(apiUrl('/api/db'), { signal: AbortSignal.timeout(3000) });
+        const db2 = await res2.json();
+        if (db2.profiles) {
+          if (db2.profiles.user1) cachedProfiles.user1 = { ...cachedProfiles.user1, ...db2.profiles.user1 };
+          if (db2.profiles.user2) cachedProfiles.user2 = { ...cachedProfiles.user2, ...db2.profiles.user2 };
+        }
+        updateLoginProfilesUI();
+        if (window.lucide) window.lucide.createIcons();
+      } catch (err2) {}
+    }, 800);
   }
 }
 
@@ -360,10 +488,66 @@ function setupProfileSelector() {
   }
 
   if (btn1) {
-    btn1.addEventListener('click', () => selectActiveProfile('user1'));
+    btn1.addEventListener('click', (e) => {
+      if (e.target.closest('.profile-thumb-wrapper') || e.target.closest('.btn-login-edit-name')) return;
+      selectActiveProfile('user1');
+    });
   }
   if (btn2) {
-    btn2.addEventListener('click', () => selectActiveProfile('user2'));
+    btn2.addEventListener('click', (e) => {
+      if (e.target.closest('.profile-thumb-wrapper') || e.target.closest('.btn-login-edit-name')) return;
+      selectActiveProfile('user2');
+    });
+  }
+
+  // Upload de avatar do perfil 1
+  const thumb1 = document.getElementById('login-thumb-user1');
+  const inputAvatar1 = document.getElementById('login-avatar-input-user1');
+  if (thumb1 && inputAvatar1) {
+    thumb1.addEventListener('click', (e) => {
+      e.stopPropagation();
+      inputAvatar1.click();
+    });
+    inputAvatar1.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleLoginAvatarUpload(e.target.files[0], 'user1');
+        e.target.value = '';
+      }
+    });
+  }
+
+  // Upload de avatar do perfil 2
+  const thumb2 = document.getElementById('login-thumb-user2');
+  const inputAvatar2 = document.getElementById('login-avatar-input-user2');
+  if (thumb2 && inputAvatar2) {
+    thumb2.addEventListener('click', (e) => {
+      e.stopPropagation();
+      inputAvatar2.click();
+    });
+    inputAvatar2.addEventListener('change', (e) => {
+      if (e.target.files && e.target.files[0]) {
+        handleLoginAvatarUpload(e.target.files[0], 'user2');
+        e.target.value = '';
+      }
+    });
+  }
+
+  // Edição de nome perfil 1
+  const btnEdit1 = document.getElementById('btn-login-edit-user1');
+  if (btnEdit1) {
+    btnEdit1.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleLoginNameEdit('user1');
+    });
+  }
+
+  // Edição de nome perfil 2
+  const btnEdit2 = document.getElementById('btn-login-edit-user2');
+  if (btnEdit2) {
+    btnEdit2.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleLoginNameEdit('user2');
+    });
   }
 
   updateLoginProfilesUI();
@@ -739,13 +923,14 @@ setupServerModeSelector();
 // ==========================================
 // AUTO-PREENCHIMENTO E RECONEXÃO
 // ==========================================
-window.addEventListener('DOMContentLoaded', async () => {
+async function initApp() {
   // Inicializar seletor de perfil e carregar perfis
   setupProfileSelector();
 
   // CRÍTICO: Obter IP local antes de qualquer conexão para que fixMDNS funcione
   await fetchMyIp();
   await checkServerStatus();
+  await loadProfilesFromDatabase();
 
   const savedQuality = localStorage.getItem('lovechat_quality_preset');
 
@@ -757,7 +942,13 @@ window.addEventListener('DOMContentLoaded', async () => {
       screenQualityBadge.textContent = currentQualityPreset.badge;
     }
   }
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initApp);
+} else {
+  initApp();
+}
 
 // ==========================================
 // FORMULÁRIO DE ENTRADA
@@ -2060,6 +2251,84 @@ btnMic.addEventListener('click', toggleMuteMicrophone);
 btnVideo.addEventListener('click', toggleVideoWebcam);
 
 // ==========================================
+// CAPTURA EXCLUSIVA DE ÁUDIO DE JANELA (AUDIO WORKLET + WASAPI)
+// ==========================================
+let processAudioContext = null;
+let processAudioWorkletNode = null;
+let processAudioDestination = null;
+let lastSelectedSourceResult = null;
+
+async function setupProcessAudioTrack() {
+  cleanupProcessAudio();
+
+  try {
+    processAudioContext = new (window.AudioContext || window.webkitAudioContext)({
+      sampleRate: 48000
+    });
+
+    // Registrar processador AudioWorklet de baixa latência
+    await processAudioContext.audioWorklet.addModule('audio-stream-processor.js');
+
+    processAudioWorkletNode = new AudioWorkletNode(processAudioContext, 'window-audio-processor', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2]
+    });
+
+    processAudioDestination = processAudioContext.createMediaStreamDestination();
+    processAudioWorkletNode.connect(processAudioDestination);
+
+    if (window.electronAPI && window.electronAPI.onProcessAudioChunk) {
+      window.electronAPI.onProcessAudioChunk((chunk) => {
+        if (processAudioWorkletNode && processAudioWorkletNode.port) {
+          const uint8 = new Uint8Array(chunk);
+          const bufferCopy = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength);
+          processAudioWorkletNode.port.postMessage({ type: 'pcm', buffer: bufferCopy }, [bufferCopy]);
+        }
+      });
+    }
+
+    const audioTracks = processAudioDestination.stream.getAudioTracks();
+    if (audioTracks && audioTracks.length > 0) {
+      console.log('🎧 [NCord] Faixa de áudio exclusivo de janela criada com sucesso via AudioWorklet!');
+      return audioTracks[0];
+    }
+  } catch (err) {
+    console.error('❌ [NCord] Erro ao configurar AudioWorklet para áudio exclusivo de janela:', err);
+    cleanupProcessAudio();
+  }
+  return null;
+}
+
+function cleanupProcessAudio() {
+  if (window.electronAPI && window.electronAPI.offProcessAudioChunk) {
+    window.electronAPI.offProcessAudioChunk();
+  }
+  if (window.electronAPI && window.electronAPI.stopProcessAudio) {
+    window.electronAPI.stopProcessAudio().catch(() => {});
+  }
+  if (processAudioWorkletNode) {
+    try {
+      processAudioWorkletNode.port.postMessage({ type: 'clear' });
+      processAudioWorkletNode.disconnect();
+    } catch (e) {}
+    processAudioWorkletNode = null;
+  }
+  if (processAudioDestination) {
+    try { processAudioDestination.disconnect(); } catch (e) {}
+    processAudioDestination = null;
+  }
+  if (processAudioContext) {
+    try {
+      if (processAudioContext.state !== 'closed') {
+        processAudioContext.close();
+      }
+    } catch (e) {}
+    processAudioContext = null;
+  }
+}
+
+// ==========================================
 // COMPARTILHAMENTO DE TELA SIMULTÂNEO
 // ==========================================
 btnScreen.addEventListener('click', async () => {
@@ -2079,6 +2348,20 @@ btnScreen.addEventListener('click', async () => {
         audio: true
       });
 
+      // Se a fonte selecionada for uma janela com áudio de processo exclusivo via WASAPI
+      if (lastSelectedSourceResult && lastSelectedSourceResult.hasProcessAudio) {
+        console.log('🎧 [NCord] Injetando faixa de áudio exclusivo de janela no screenStream...');
+        const isolatedAudioTrack = await setupProcessAudioTrack();
+        if (isolatedAudioTrack) {
+          // Remover qualquer faixa padrão silenciosa ou redundante
+          screenStream.getAudioTracks().forEach((t) => {
+            try { t.stop(); } catch (e) {}
+            screenStream.removeTrack(t);
+          });
+          screenStream.addTrack(isolatedAudioTrack);
+        }
+      }
+
       const videoTrack = screenStream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.contentHint = currentQualityPreset.contentHint;
@@ -2097,10 +2380,13 @@ btnScreen.addEventListener('click', async () => {
         await startScreenOffer(screenStream);
       }
 
-      showToast('Compartilhamento de tela ativo! 💻', 'info');
+      const hasIsolated = lastSelectedSourceResult && lastSelectedSourceResult.hasProcessAudio;
+      showToast(hasIsolated ? 'Compartilhando janela com áudio exclusivo! 🎧💻' : 'Compartilhamento de tela ativo! 💻', 'info');
 
     } catch (err) {
       console.error('Falha ao compartilhar tela:', err);
+      cleanupProcessAudio();
+      lastSelectedSourceResult = null;
       isScreenSharing = false;
       btnScreen.classList.remove('active');
       if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
@@ -2119,6 +2405,9 @@ btnScreen.addEventListener('click', async () => {
 
 function stopScreenSharing() {
   if (!isScreenSharing && !screenStream) return;
+
+  cleanupProcessAudio();
+  lastSelectedSourceResult = null;
 
   if (screenStream) {
     screenStream.getTracks().forEach(t => {
@@ -2483,39 +2772,6 @@ window.addEventListener('keydown', (e) => {
     showToast(isAudioMuted ? 'Microfone Mutado 🤫' : 'Microfone Ativo 🎙️', 'info');
   }
 });
-
-btnLink.addEventListener('click', () => {
-  const inviteUrl = `${window.location.origin}/?pass=${encodeURIComponent(roomPin)}`;
-
-  navigator.clipboard.writeText(inviteUrl)
-    .then(() => {
-      showToast('Link do nosso cantinho copiado! 💕', 'link');
-      btnLink.classList.add('active');
-      setTimeout(() => btnLink.classList.remove('active'), 1500);
-    })
-    .catch(err => {
-      console.error('Erro ao copiar link:', err);
-      showToast('Erro ao copiar link.', 'alert-circle');
-    });
-});
-
-const btnCopyInviteSidebar = document.getElementById('btn-copy-invite-sidebar');
-if (btnCopyInviteSidebar) {
-  btnCopyInviteSidebar.addEventListener('click', () => {
-    const inviteUrl = `${window.location.origin}/?pass=${encodeURIComponent(roomPin)}`;
-
-    navigator.clipboard.writeText(inviteUrl)
-      .then(() => {
-        showToast('Link do nosso cantinho copiado! 💕', 'link');
-        btnCopyInviteSidebar.classList.add('active');
-        setTimeout(() => btnCopyInviteSidebar.classList.remove('active'), 1500);
-      })
-      .catch(err => {
-        console.error('Erro ao copiar link:', err);
-        showToast('Erro ao copiar link.', 'alert-circle');
-      });
-  });
-}
 
 btnFullscreen.addEventListener('click', () => {
   if (!document.fullscreenElement) {
@@ -2991,6 +3247,11 @@ function updateLocalAvatarUI(base64) {
     if (localAvatarIcon) {
       localAvatarIcon.classList.add('hide');
     }
+  } else {
+    if (localSidebarImg) localSidebarImg.classList.add('hide');
+    if (localAvatarImg) localAvatarImg.classList.add('hide');
+    if (localAvatarBg) localAvatarBg.classList.add('hide');
+    if (localAvatarIcon) localAvatarIcon.classList.remove('hide');
   }
 }
 
@@ -3050,21 +3311,21 @@ async function saveAvatarToDatabase(base64) {
 // Editar Apelido em Tempo Real
 btnEditName.addEventListener('click', () => {
   const myProfile = getMyUserProfile();
-  const currentSuffix = activeProfileId === 'user1' ? ' 💜' : ' 💖';
-  const currentName = localNameLbl.textContent.replace(' 💜', '').replace(' 💖', '');
+  const currentName = localNameLbl.textContent.trim();
 
   const input = document.createElement('input');
   input.type = 'text';
   input.value = currentName;
   input.className = 'edit-name-input';
-  input.maxLength = 12;
+  input.maxLength = 18;
 
   localNameLbl.replaceWith(input);
   input.focus();
+  input.select();
 
   const saveName = async () => {
-    const rawVal = input.value.trim() || currentName;
-    const newName = rawVal.includes('💜') || rawVal.includes('💖') ? rawVal : (rawVal + currentSuffix);
+    const rawVal = input.value.trim();
+    const newName = rawVal || currentName;
 
     localNameLbl.textContent = newName;
     input.replaceWith(localNameLbl);
@@ -3734,7 +3995,12 @@ function setupElectronScreenPicker() {
     }
     if (audioContainer) audioContainer.style.opacity = '1';
     if (lblAudioDesc) {
-      lblAudioDesc.textContent = 'Transmite o som do jogo/aplicativo. (Dica: no Discord, use saída separada se não quiser voz na stream)';
+      if (currentScreenTab === 'apps') {
+        lblAudioDesc.innerHTML = '<span style="color:#4ade80;font-weight:600;"><i data-lucide="volume-2" style="display:inline-block;width:12px;height:12px;vertical-align:middle;margin-right:4px;"></i>Áudio Exclusivo da Janela</span> — Transmite apenas o som deste aplicativo (sem ruídos do sistema, outros programas ou sua chamada de voz).';
+      } else {
+        lblAudioDesc.innerHTML = '<span style="color:#60a5fa;font-weight:600;"><i data-lucide="monitor" style="display:inline-block;width:12px;height:12px;vertical-align:middle;margin-right:4px;"></i>Áudio do Sistema</span> — Transmite todos os sons do computador na tela selecionada.';
+      }
+      if (window.lucide) window.lucide.createIcons();
     }
   }
 
@@ -3755,8 +4021,16 @@ function setupElectronScreenPicker() {
         ? `<img src="${source.appIcon}" class="screen-source-app-icon" alt="Icon">` 
         : `<i data-lucide="${source.isScreen ? 'monitor' : 'app-window'}" style="width:16px;height:16px;color:#c084fc;"></i>`;
 
+      const isWin = !source.isScreen;
+      const badgeHtml = isWin
+        ? `<span class="screen-source-badge" style="font-size: 10px; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; backdrop-filter: blur(4px);"><i data-lucide="volume-2" style="width:10px;height:10px;"></i> Áudio Exclusivo</span>`
+        : `<span class="screen-source-badge" style="font-size: 10px; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px; backdrop-filter: blur(4px);"><i data-lucide="monitor" style="width:10px;height:10px;"></i> Áudio Sistema</span>`;
+
       card.innerHTML = `
-        <img src="${source.thumbnail}" class="screen-source-thumb" alt="${source.name}">
+        <div style="position: relative; overflow: hidden; border-radius: 6px;">
+          <img src="${source.thumbnail}" class="screen-source-thumb" alt="${source.name}">
+          <div style="position: absolute; bottom: 6px; right: 6px; z-index: 2;">${badgeHtml}</div>
+        </div>
         <div class="screen-source-info">
           ${appIconHtml}
           <span class="screen-source-title" title="${source.name}">${source.name}</span>
@@ -3849,7 +4123,7 @@ function setupElectronScreenPicker() {
       const targetId = selectedSourceId;
       const targetName = selectedSourceName;
       closeModal(false);
-      await window.electronAPI.selectDesktopSource(targetId, withAudio, targetName);
+      lastSelectedSourceResult = await window.electronAPI.selectDesktopSource(targetId, withAudio, targetName);
     });
   }
 

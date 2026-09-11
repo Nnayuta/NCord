@@ -14,6 +14,8 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "koffi": "^3.2.1",
+    "loopback-capture": "^3.0.2",
     "peer": "^1.0.2"
   },
   "devDependencies": {

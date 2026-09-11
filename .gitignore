@@ -1,4 +1,26 @@
+# Dependências
 node_modules/
-certs/
+
+# Pacotes e artefatos de compilação
 dist/
+build/
+*.exe
+
+# Dados locais e configurações de usuário
 database.json
+settings.json
+*.local.json
+
+# Certificados locais
+certs/
+*.pem
+
+# Logs e arquivos de depuração
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+Desktop.ini

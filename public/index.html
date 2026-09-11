@@ -48,33 +48,52 @@
       <div class="identity-card-header">
         <i data-lucide="user-check"></i>
         <span>Quem é você neste PC?</span>
+        <span class="identity-card-hint">Clique para escolher ou trocar foto</span>
       </div>
       <div class="identity-profile-selector">
-        <button type="button" id="profile-btn-user1" class="profile-choice-btn active" data-user="user1">
-          <div class="profile-thumb-wrapper">
-            <img id="login-avatar-user1" src="" class="profile-choice-avatar hide" alt="Nay">
-            <div id="login-default-icon-user1" class="profile-choice-icon"><i data-lucide="heart"></i></div>
+        <div id="profile-btn-user1" class="profile-choice-btn active" data-user="user1">
+          <div class="profile-thumb-wrapper" id="login-thumb-user1" title="Clique para trocar a foto de perfil">
+            <img id="login-avatar-user1" src="" class="profile-choice-avatar hide" alt="Perfil 1">
+            <div id="login-default-icon-user1" class="profile-choice-icon"><i data-lucide="user"></i></div>
             <span class="profile-badge-dot purple"></span>
+            <div class="profile-avatar-overlay">
+              <i data-lucide="camera"></i>
+            </div>
           </div>
           <div class="profile-choice-info">
-            <span class="profile-choice-name" id="login-name-user1">Nay 💜</span>
-            <span class="profile-choice-desc">Meu Perfil</span>
+            <div class="profile-name-row">
+              <span class="profile-choice-name" id="login-name-user1">Usuário 1</span>
+              <button type="button" class="btn-login-edit-name" id="btn-login-edit-user1" title="Editar nome">
+                <i data-lucide="edit-2"></i>
+              </button>
+            </div>
+            <span class="profile-choice-desc" id="login-desc-user1">Selecionado ✓</span>
           </div>
           <i data-lucide="check" class="profile-check-icon"></i>
-        </button>
+        </div>
+        <input type="file" id="login-avatar-input-user1" accept="image/*" class="hide">
 
-        <button type="button" id="profile-btn-user2" class="profile-choice-btn" data-user="user2">
-          <div class="profile-thumb-wrapper">
-            <img id="login-avatar-user2" src="" class="profile-choice-avatar hide" alt="Milka">
-            <div id="login-default-icon-user2" class="profile-choice-icon"><i data-lucide="heart"></i></div>
+        <div id="profile-btn-user2" class="profile-choice-btn" data-user="user2">
+          <div class="profile-thumb-wrapper" id="login-thumb-user2" title="Clique para trocar a foto de perfil">
+            <img id="login-avatar-user2" src="" class="profile-choice-avatar hide" alt="Perfil 2">
+            <div id="login-default-icon-user2" class="profile-choice-icon"><i data-lucide="user"></i></div>
             <span class="profile-badge-dot pink"></span>
+            <div class="profile-avatar-overlay">
+              <i data-lucide="camera"></i>
+            </div>
           </div>
           <div class="profile-choice-info">
-            <span class="profile-choice-name" id="login-name-user2">Milka 💖</span>
-            <span class="profile-choice-desc">Meu Perfil</span>
+            <div class="profile-name-row">
+              <span class="profile-choice-name" id="login-name-user2">Usuário 2</span>
+              <button type="button" class="btn-login-edit-name" id="btn-login-edit-user2" title="Editar nome">
+                <i data-lucide="edit-2"></i>
+              </button>
+            </div>
+            <span class="profile-choice-desc" id="login-desc-user2">Clique para usar</span>
           </div>
           <i data-lucide="check" class="profile-check-icon hide"></i>
-        </button>
+        </div>
+        <input type="file" id="login-avatar-input-user2" accept="image/*" class="hide">
       </div>
     </div>
 
@@ -166,14 +185,6 @@
       </div>
 
       <div class="sidebar-content">
-        <!-- Card de Convite do Casal -->
-        <div class="invite-card-sidebar">
-          <p>Convide seu amor para a call 💕</p>
-          <button id="btn-copy-invite-sidebar" class="btn-sidebar-invite">
-            <i data-lucide="link"></i> Copiar Link
-          </button>
-        </div>
-
         <!-- Canais estilo Discord -->
         <div class="channel-section">
           <div class="section-title">Canais de Voz</div>
@@ -216,7 +227,7 @@
                   <span id="local-avatar-dot" class="avatar-dot"
                     style="background-color: var(--accent-purple); box-shadow: 0 0 8px var(--accent-purple);"></span>
                 </div>
-                <span id="local-name-lbl" class="editable-name">Você 💜</span>
+                <span id="local-name-lbl" class="editable-name">Você</span>
                 <span class="member-live-badge hide" id="local-live-badge"><i data-lucide="tv"></i> AO VIVO</span>
                 <button id="btn-edit-name" class="btn-edit-name" title="Mudar meu apelido">
                   <i data-lucide="edit-3"></i>
@@ -242,7 +253,7 @@
                   <img id="remote-sidebar-avatar-img" class="sidebar-avatar-img hide" src="" alt="Avatar">
                   <span class="avatar-dot offline" id="remote-status-dot"></span>
                 </div>
-                <span id="remote-name-lbl">Aguardando Meu Amor...</span>
+                <span id="remote-name-lbl">Aguardando Parceiro...</span>
                 <span class="member-live-badge hide" id="remote-live-badge"><i data-lucide="tv"></i> AO VIVO</span>
               </div>
               <div class="member-status-icons hide" id="remote-status-icons">
@@ -367,7 +378,7 @@
             </div>
           </div>
           <div class="video-info-overlay">
-            <span id="remote-video-name-lbl">Meu Amor</span>
+            <span id="remote-video-name-lbl">Parceiro</span>
             <div class="overlay-icons">
               <i data-lucide="mic-off" id="overlay-remote-mic" class="hide"></i>
               <i data-lucide="video-off" id="overlay-remote-video" class="hide"></i>
@@ -397,9 +408,6 @@
         </button>
         <button id="btn-fullscreen" class="btn-control" title="Tela Cheia">
           <i data-lucide="maximize"></i>
-        </button>
-        <button id="btn-link" class="btn-control" title="Copiar Link de Convite">
-          <i data-lucide="link"></i>
         </button>
         <button id="btn-disconnect" class="btn-control btn-leave" title="Sair do Nosso Espaço">
           <i data-lucide="phone-off"></i>
@@ -507,7 +515,7 @@
           <i data-lucide="volume-2" id="icon-screen-audio"></i>
           <div>
             <div class="audio-toggle-title" id="lbl-audio-toggle-title">Transmitir Áudio</div>
-            <div class="audio-toggle-desc" id="lbl-audio-toggle-desc">Transmite o som do jogo/aplicativo. (Dica: no Discord, use fone/saída separada se não quiser voz na stream)</div>
+            <div class="audio-toggle-desc" id="lbl-audio-toggle-desc"><span style="color:#4ade80;font-weight:600;">Áudio Exclusivo da Janela</span> — Transmite apenas o som deste aplicativo (sem ruídos do sistema, outros programas ou sua chamada de voz).</div>
           </div>
         </div>
         <label class="toggle-switch">

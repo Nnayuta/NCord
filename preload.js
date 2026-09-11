@@ -18,6 +18,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenScreenPicker: (callback) => {
     ipcRenderer.on('open-native-screen-picker', () => callback());
   },
+  onProcessAudioChunk: (callback) => {
+    ipcRenderer.removeAllListeners('process-audio-chunk');
+    ipcRenderer.on('process-audio-chunk', (_, chunk) => callback(chunk));
+  },
+  offProcessAudioChunk: () => {
+    ipcRenderer.removeAllListeners('process-audio-chunk');
+  },
+  stopProcessAudio: () => ipcRenderer.invoke('stop-process-audio'),
   
   // Controle de conexão e hospedagem de servidor
   connectToServer: (targetIp) => ipcRenderer.invoke('connect-to-server', targetIp),

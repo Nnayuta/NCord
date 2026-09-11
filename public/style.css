@@ -1827,50 +1827,6 @@ body {
   color: var(--accent-red);
 }
 
-/* Card de Convite na Sidebar */
-.invite-card-sidebar {
-  background: rgba(244, 63, 142, 0.04);
-  border: 1px dashed rgba(244, 63, 142, 0.15);
-  border-radius: var(--card-radius);
-  padding: 0.75rem;
-  margin-bottom: 1.25rem;
-  text-align: center;
-}
-
-.invite-card-sidebar p {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.btn-sidebar-invite {
-  background: var(--gradient-love);
-  border: none;
-  border-radius: 8px;
-  color: var(--text-bright);
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.4rem 0.8rem;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  transition: var(--transition-fast);
-  box-shadow: 0 4px 12px rgba(244, 63, 142, 0.2);
-}
-
-.btn-sidebar-invite:hover {
-  transform: scale(1.03);
-  box-shadow: 0 4px 16px rgba(244, 63, 142, 0.4);
-}
-
-.btn-sidebar-invite i,
-.btn-sidebar-invite svg {
-  width: 12px;
-  height: 12px;
-}
-
 /* ========================================== */
 /* AJUSTES RESPONSIVOS (MOBILE OPTIMIZATIONS) */
 /* ========================================== */
@@ -2074,8 +2030,7 @@ body {
 
   /* Esconder botões supérfluos no celular para caber perfeitamente na barra compacta */
   #btn-fullscreen,
-  #btn-screen,
-  #btn-link {
+  #btn-screen {
     display: none !important;
   }
 
@@ -2679,6 +2634,14 @@ body {
   margin-bottom: 10px;
 }
 
+.identity-card-hint {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: #949ba4;
+  text-transform: none;
+  margin-left: auto;
+}
+
 .identity-card-header i,
 .identity-card-header svg {
   width: 15px;
@@ -2704,6 +2667,7 @@ body {
   position: relative;
   text-align: left;
   outline: none;
+  user-select: none;
 }
 
 .profile-choice-btn:hover {
@@ -2726,21 +2690,24 @@ body {
 
 .profile-thumb-wrapper {
   position: relative;
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   flex-shrink: 0;
+  cursor: pointer;
+  border-radius: 50%;
 }
 
 .profile-choice-avatar {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   object-fit: cover;
+  display: block;
 }
 
 .profile-choice-icon {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   background: rgba(168, 85, 247, 0.2);
   display: flex;
@@ -2754,6 +2721,33 @@ body {
   color: #f43f8e;
 }
 
+.profile-avatar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  color: #ffffff;
+  pointer-events: none;
+}
+
+.profile-avatar-overlay svg,
+.profile-avatar-overlay i {
+  width: 16px;
+  height: 16px;
+}
+
+.profile-thumb-wrapper:hover .profile-avatar-overlay {
+  opacity: 1;
+}
+
 .profile-thumb-wrapper .profile-badge-dot {
   position: absolute;
   bottom: 0;
@@ -2762,6 +2756,7 @@ body {
   height: 10px;
   border-radius: 50%;
   border: 2px solid #1e1f22;
+  z-index: 2;
 }
 
 .profile-thumb-wrapper .profile-badge-dot.purple {
@@ -2777,6 +2772,14 @@ body {
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  gap: 2px;
+}
+
+.profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
 }
 
 .profile-choice-name {
@@ -2786,6 +2789,31 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.btn-login-edit-name {
+  background: none;
+  border: none;
+  padding: 2px;
+  color: #949ba4;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.2s, background 0.2s;
+  flex-shrink: 0;
+}
+
+.btn-login-edit-name:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.btn-login-edit-name svg,
+.btn-login-edit-name i {
+  width: 13px;
+  height: 13px;
 }
 
 .profile-choice-desc {
