@@ -136,20 +136,46 @@ export function WebRTCProvider({ children }) {
     }
   }, []);
 
+  // Captura de microfone com fallback inteligente
+  const getMicrophoneStream = async () => {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 2,
+          sampleRate: 48000
+        }
+      });
+    } catch (err1) {
+      console.warn('[WebRTC] Tentando fallback para captura básica de microfone:', err1);
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+  };
+
+  // Captura de câmera com fallback inteligente
+  const getCameraStream = async () => {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 1920, min: 640 },
+          height: { ideal: 1080, min: 480 },
+          frameRate: { ideal: 30 }
+        }
+      });
+    } catch (err1) {
+      console.warn('[WebRTC] Tentando fallback para captura básica de câmera:', err1);
+      return await navigator.mediaDevices.getUserMedia({ video: true });
+    }
+  };
+
   // Alternar Microfone
   const toggleMic = useCallback(async () => {
     try {
       if (isMicMuted) {
         if (!realMicTrackRef.current || realMicTrackRef.current.readyState === 'ended') {
-          const micStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              channelCount: 2,
-              sampleRate: 48000
-            }
-          });
+          const micStream = await getMicrophoneStream();
           realMicTrackRef.current = micStream.getAudioTracks()[0];
         } else {
           realMicTrackRef.current.enabled = true;
@@ -235,7 +261,15 @@ export function WebRTCProvider({ children }) {
       }
     } catch (err) {
       console.warn('Erro ao alternar microfone:', err);
-      showToast('Permissão de microfone não concedida.', 'error');
+      let errorMsg = 'Não foi possível acessar o microfone.';
+      if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorMsg = 'O microfone já está em uso por outro aplicativo.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorMsg = 'Nenhum microfone encontrado no computador.';
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        errorMsg = 'Permissão de microfone negada no Windows.';
+      }
+      showToast(errorMsg, 'error');
     }
   }, [isMicMuted, isVideoOff, showToast, updateLocalAudioDetector]);
 
@@ -244,13 +278,7 @@ export function WebRTCProvider({ children }) {
     try {
       if (isVideoOff) {
         if (!realCamTrackRef.current || realCamTrackRef.current.readyState === 'ended') {
-          const camStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              width: { ideal: 1920 },
-              height: { ideal: 1080 },
-              frameRate: { ideal: 60, max: 60 }
-            }
-          });
+          const camStream = await getCameraStream();
           realCamTrackRef.current = camStream.getVideoTracks()[0];
         } else {
           realCamTrackRef.current.enabled = true;
@@ -335,7 +363,15 @@ export function WebRTCProvider({ children }) {
       }
     } catch (err) {
       console.warn('Erro ao alternar câmera:', err);
-      showToast('Permissão de câmera não concedida.', 'error');
+      let errorMsg = 'Não foi possível acessar a câmera.';
+      if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorMsg = 'A câmera já está em uso por outro aplicativo ou janela.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorMsg = 'Nenhuma webcam encontrada conectada ao computador.';
+      } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        errorMsg = 'Permissão de câmera negada nas configurações do Windows.';
+      }
+      showToast(errorMsg, 'error');
     }
   }, [isVideoOff, isMicMuted, activePreset, showToast]);
 
