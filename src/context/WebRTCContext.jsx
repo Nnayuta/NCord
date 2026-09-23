@@ -140,7 +140,7 @@ export function WebRTCProvider({ children }) {
   const toggleMic = useCallback(async () => {
     try {
       if (isMicMuted) {
-        if (!realMicTrackRef.current) {
+        if (!realMicTrackRef.current || realMicTrackRef.current.readyState === 'ended') {
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
               echoCancellation: true,
@@ -155,13 +155,22 @@ export function WebRTCProvider({ children }) {
           realMicTrackRef.current.enabled = true;
         }
 
-        if (!audioSenderRef.current && mainMediaCallRef.current?.peerConnection) {
-          const senders = mainMediaCallRef.current.peerConnection.getSenders();
-          audioSenderRef.current = senders.find((s) => s.track && s.track.kind === 'audio') || null;
-        }
+        const pc = mainMediaCallRef.current?.peerConnection;
+        if (pc) {
+          let aSender = audioSenderRef.current;
+          if (!aSender) {
+            const senders = pc.getSenders();
+            aSender = senders.find((s) => s.track && s.track.kind === 'audio');
+            if (!aSender && pc.getTransceivers) {
+              const at = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'audio' || t.sender?.track?.kind === 'audio');
+              if (at) aSender = at.sender;
+            }
+            audioSenderRef.current = aSender;
+          }
 
-        if (audioSenderRef.current && realMicTrackRef.current) {
-          await audioSenderRef.current.replaceTrack(realMicTrackRef.current);
+          if (aSender && realMicTrackRef.current) {
+            await aSender.replaceTrack(realMicTrackRef.current);
+          }
         }
 
         setLocalStream((prev) => {
@@ -171,6 +180,17 @@ export function WebRTCProvider({ children }) {
 
         updateLocalAudioDetector(realMicTrackRef.current);
         setIsMicMuted(false);
+
+        if (dataConnRef.current && dataConnRef.current.open) {
+          try {
+            dataConnRef.current.send({
+              type: 'media-state',
+              isVideoOff,
+              isMicMuted: false
+            });
+          } catch (e) {}
+        }
+
         showToast('Microfone ativado 🎙️', 'info');
       } else {
         if (realMicTrackRef.current) {
@@ -180,29 +200,50 @@ export function WebRTCProvider({ children }) {
           dummyAudioTrackRef.current = createDummyAudioTrack();
         }
 
-        if (!audioSenderRef.current && mainMediaCallRef.current?.peerConnection) {
-          const senders = mainMediaCallRef.current.peerConnection.getSenders();
-          audioSenderRef.current = senders.find((s) => s.track && s.track.kind === 'audio') || null;
+        const pc = mainMediaCallRef.current?.peerConnection;
+        if (pc) {
+          let aSender = audioSenderRef.current;
+          if (!aSender) {
+            const senders = pc.getSenders();
+            aSender = senders.find((s) => s.track && s.track.kind === 'audio');
+            if (!aSender && pc.getTransceivers) {
+              const at = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'audio' || t.sender?.track?.kind === 'audio');
+              if (at) aSender = at.sender;
+            }
+            audioSenderRef.current = aSender;
+          }
+
+          if (aSender && dummyAudioTrackRef.current) {
+            await aSender.replaceTrack(dummyAudioTrackRef.current);
+          }
         }
 
-        if (audioSenderRef.current && dummyAudioTrackRef.current) {
-          await audioSenderRef.current.replaceTrack(dummyAudioTrackRef.current);
-        }
         updateLocalAudioDetector(null);
         setIsMicMuted(true);
+
+        if (dataConnRef.current && dataConnRef.current.open) {
+          try {
+            dataConnRef.current.send({
+              type: 'media-state',
+              isVideoOff,
+              isMicMuted: true
+            });
+          } catch (e) {}
+        }
+
         showToast('Microfone silenciado 🔇', 'info');
       }
     } catch (err) {
       console.warn('Erro ao alternar microfone:', err);
       showToast('Permissão de microfone não concedida.', 'error');
     }
-  }, [isMicMuted, showToast, updateLocalAudioDetector]);
+  }, [isMicMuted, isVideoOff, showToast, updateLocalAudioDetector]);
 
   // Alternar Câmera
   const toggleVideo = useCallback(async () => {
     try {
       if (isVideoOff) {
-        if (!realCamTrackRef.current) {
+        if (!realCamTrackRef.current || realCamTrackRef.current.readyState === 'ended') {
           const camStream = await navigator.mediaDevices.getUserMedia({
             video: {
               width: { ideal: 1920 },
@@ -215,14 +256,23 @@ export function WebRTCProvider({ children }) {
           realCamTrackRef.current.enabled = true;
         }
 
-        if (!videoSenderRef.current && mainMediaCallRef.current?.peerConnection) {
-          const senders = mainMediaCallRef.current.peerConnection.getSenders();
-          videoSenderRef.current = senders.find((s) => s.track && s.track.kind === 'video') || null;
-        }
+        const pc = mainMediaCallRef.current?.peerConnection;
+        if (pc) {
+          let vSender = videoSenderRef.current;
+          if (!vSender) {
+            const senders = pc.getSenders();
+            vSender = senders.find((s) => s.track && s.track.kind === 'video');
+            if (!vSender && pc.getTransceivers) {
+              const vt = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+              if (vt) vSender = vt.sender;
+            }
+            videoSenderRef.current = vSender;
+          }
 
-        if (videoSenderRef.current && realCamTrackRef.current) {
-          await videoSenderRef.current.replaceTrack(realCamTrackRef.current);
-          await applySenderParameters(videoSenderRef.current, activePreset, false);
+          if (vSender && realCamTrackRef.current) {
+            await vSender.replaceTrack(realCamTrackRef.current);
+            await applySenderParameters(vSender, activePreset, false);
+          }
         }
 
         setLocalStream((prev) => {
@@ -231,32 +281,63 @@ export function WebRTCProvider({ children }) {
         });
 
         setIsVideoOff(false);
+
+        if (dataConnRef.current && dataConnRef.current.open) {
+          try {
+            dataConnRef.current.send({
+              type: 'media-state',
+              isVideoOff: false,
+              isMicMuted
+            });
+          } catch (e) {}
+        }
+
         showToast('Câmera ativada 📷', 'info');
       } else {
         if (realCamTrackRef.current) {
-          realCamTrackRef.current.stop();
-          realCamTrackRef.current = null;
+          realCamTrackRef.current.enabled = false;
         }
         if (!dummyVideoTrackRef.current) {
           dummyVideoTrackRef.current = createDummyVideoTrack();
         }
 
-        if (!videoSenderRef.current && mainMediaCallRef.current?.peerConnection) {
-          const senders = mainMediaCallRef.current.peerConnection.getSenders();
-          videoSenderRef.current = senders.find((s) => s.track && s.track.kind === 'video') || null;
+        const pc = mainMediaCallRef.current?.peerConnection;
+        if (pc) {
+          let vSender = videoSenderRef.current;
+          if (!vSender) {
+            const senders = pc.getSenders();
+            vSender = senders.find((s) => s.track && s.track.kind === 'video');
+            if (!vSender && pc.getTransceivers) {
+              const vt = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+              if (vt) vSender = vt.sender;
+            }
+            videoSenderRef.current = vSender;
+          }
+
+          if (vSender && dummyVideoTrackRef.current) {
+            await vSender.replaceTrack(dummyVideoTrackRef.current);
+          }
         }
 
-        if (videoSenderRef.current && dummyVideoTrackRef.current) {
-          await videoSenderRef.current.replaceTrack(dummyVideoTrackRef.current);
-        }
         setIsVideoOff(true);
+
+        if (dataConnRef.current && dataConnRef.current.open) {
+          try {
+            dataConnRef.current.send({
+              type: 'media-state',
+              isVideoOff: true,
+              isMicMuted
+            });
+          } catch (e) {}
+        }
+
         showToast('Câmera desativada', 'info');
       }
     } catch (err) {
       console.warn('Erro ao alternar câmera:', err);
       showToast('Permissão de câmera não concedida.', 'error');
     }
-  }, [isVideoOff, activePreset, showToast]);
+  }, [isVideoOff, isMicMuted, activePreset, showToast]);
 
   // Destaque / Foco (Spotlight): 'local-camera' | 'remote-camera' | 'local-screen' | 'remote-screen' | null
   const [spotlightTarget, setSpotlightTarget] = useState(null);

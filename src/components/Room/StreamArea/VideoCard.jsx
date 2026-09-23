@@ -15,18 +15,16 @@ export function VideoCard({
   const { spotlightTarget, toggleSpotlight } = useWebRTC();
 
   const isSpotlight = spotlightTarget === targetId;
+  const hasVideoTrack = !isVideoOff && stream && stream.getVideoTracks().length > 0;
 
   useEffect(() => {
-    if (videoRef.current && stream) {
+    if (videoRef.current && stream && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
     }
-  }, [stream]);
-
-  const hasVideoTrack =
-    !isVideoOff && stream && stream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live');
+  }, [stream, hasVideoTrack, isVideoOff]);
 
   const handleCardClick = (e) => {
-    // Se não clicou em um botão de ação interno
     if (!e.target.closest('button')) {
       toggleSpotlight(targetId);
     }
@@ -54,7 +52,13 @@ export function VideoCard({
     >
       {hasVideoTrack ? (
         <video
-          ref={videoRef}
+          ref={(el) => {
+            videoRef.current = el;
+            if (el && stream && el.srcObject !== stream) {
+              el.srcObject = stream;
+              el.play().catch(() => {});
+            }
+          }}
           autoPlay
           playsInline
           muted={true}
