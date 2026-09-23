@@ -1,9 +1,9 @@
 @echo off
-title NCord Desktop
+title LoveChat Desktop
 cd /d "%~dp0"
 
 echo ============================================================
-echo                     NCord Desktop
+echo                    LoveChat Desktop
 echo ============================================================
 echo.
 
@@ -30,7 +30,7 @@ if not exist "node_modules\" (
     echo.
 )
 
-echo [OK] Abrindo NCord Desktop...
+echo [OK] Abrindo LoveChat Desktop...
 echo.
 
 :: 3. Iniciar o Electron (que inicia o servidor automaticamente em segundo plano)

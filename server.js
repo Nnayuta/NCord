@@ -7,7 +7,7 @@ const { ExpressPeerServer } = require('peer');
 const app = express();
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = process.env.NCORD_DATA_DIR || __dirname;
+const DATA_DIR = process.env.LOVECHAT_DATA_DIR || process.env.NCORD_DATA_DIR || __dirname;
 try {
   if (!fs.existsSync(DATA_DIR)) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -98,7 +98,7 @@ function readDB() {
     hostName: "Usuário 1",
     guestName: "Usuário 2",
     notes: [
-      { id: 1, text: "Bem-vindo ao NCord! Adicione notas e recados aqui ✨", category: "cozy" },
+      { id: 1, text: "Bem-vindo ao LoveChat! Adicione notas e recados aqui ✨", category: "cozy" },
       { id: 2, text: "Clique para riscar ou adicione novos planos no botão acima 📝", category: "soft" }
     ]
   };
@@ -345,7 +345,7 @@ async function startServer() {
 
   return new Promise((resolve, reject) => {
     httpServer.listen(PORT, '0.0.0.0', () => {
-      console.log(`\n🌐 Servidor NCord ativo na porta ${PORT} (API + PeerJS)`);
+      console.log(`\n🌐 Servidor LoveChat ativo na porta ${PORT} (API + PeerJS)`);
       resolve({ httpServer });
     });
     httpServer.on('error', (err) => {

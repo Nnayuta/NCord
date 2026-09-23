@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Expor utilitários seguros para a janela do NCord
+// Expor utilitários seguros para a janela do LoveChat
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
   platform: process.platform,
@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onOpenScreenPicker: (callback) => {
     ipcRenderer.on('open-native-screen-picker', () => callback());
   },
+  onProcessAudioSelected: (callback) => {
+    ipcRenderer.removeAllListeners('process-audio-selected');
+    ipcRenderer.on('process-audio-selected', (_, data) => callback(data));
+  },
   onProcessAudioChunk: (callback) => {
     ipcRenderer.removeAllListeners('process-audio-chunk');
     ipcRenderer.on('process-audio-chunk', (_, chunk) => callback(chunk));
@@ -26,6 +30,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('process-audio-chunk');
   },
   stopProcessAudio: () => ipcRenderer.invoke('stop-process-audio'),
+  
+  // Mixer de Áudio da Transmissão (WASAPI Multi-Process)
+  getAudioMixerSources: () => ipcRenderer.invoke('get-audio-mixer-sources'),
+  startMixerProcessAudio: (pid, includeProcessTree) => ipcRenderer.invoke('start-mixer-process-audio', { pid, includeProcessTree }),
+  stopMixerProcessAudio: (pid) => ipcRenderer.invoke('stop-mixer-process-audio', pid),
+  onMixerProcessAudioChunk: (callback) => {
+    ipcRenderer.removeAllListeners('mixer-process-audio-chunk');
+    ipcRenderer.on('mixer-process-audio-chunk', (_, data) => callback(data));
+  },
+  offMixerProcessAudioChunk: () => {
+    ipcRenderer.removeAllListeners('mixer-process-audio-chunk');
+  },
   
   // Controle de conexão e hospedagem de servidor
   connectToServer: (targetIp) => ipcRenderer.invoke('connect-to-server', targetIp),

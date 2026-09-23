@@ -10,6 +10,7 @@ const { exec } = require('child_process');
 let LoopbackCapture = null;
 let GetWindowThreadProcessId = null;
 let activeProcessCapture = null;
+const mixerActiveCaptures = new Map(); // pid -> LoopbackCapture instance
 
 try {
   const loopbackModule = require('loopback-capture');
@@ -31,15 +32,28 @@ try {
 function getPidFromHwnd(hwndNumber) {
   if (!GetWindowThreadProcessId || !hwndNumber) return 0;
   try {
-    const koffi = require('koffi');
-    const hwndPtr = koffi.as(BigInt(hwndNumber), 'void *');
+    const num = typeof hwndNumber === 'string' ? parseInt(hwndNumber, 10) : Number(hwndNumber);
+    if (!num || isNaN(num)) return 0;
     const pidOut = [0];
-    GetWindowThreadProcessId(hwndPtr, pidOut);
+    GetWindowThreadProcessId(num, pidOut);
+    if (pidOut[0] > 0) return pidOut[0];
+    
+    // Tentar como BigInt se retorno inicial foi 0
+    GetWindowThreadProcessId(BigInt(num), pidOut);
     return pidOut[0] || 0;
   } catch (err) {
     console.warn(`[Electron] Falha ao resolver PID para HWND ${hwndNumber}:`, err.message);
     return 0;
   }
+}
+
+function stopAllMixerCaptures() {
+  for (const [pid, capturer] of mixerActiveCaptures.entries()) {
+    try {
+      capturer.stop();
+    } catch (e) {}
+  }
+  mixerActiveCaptures.clear();
 }
 
 function stopActiveProcessAudio() {
@@ -52,6 +66,7 @@ function stopActiveProcessAudio() {
     }
     activeProcessCapture = null;
   }
+  stopAllMixerCaptures();
 }
 
 
@@ -59,6 +74,7 @@ function stopActiveProcessAudio() {
 // CONFIGURAÇÃO DE DIRETÓRIO GRAVÁVEL (PARA .EXE)
 // ==========================================
 const userDataDir = app.getPath('userData');
+process.env.LOVECHAT_DATA_DIR = userDataDir;
 process.env.NCORD_DATA_DIR = userDataDir;
 
 try {
@@ -164,7 +180,7 @@ function checkFirewallRule(ruleName) {
 async function requestFirewallPermissions(force = false) {
   if (process.platform !== 'win32') return { success: true };
 
-  const hasPortRule = await checkFirewallRule('NCord Port 3000');
+  const hasPortRule = (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
   if (hasPortRule && !force) {
     console.log('[Firewall] Regras do Firewall do Windows já configuradas.');
     return { success: true, alreadyExists: true };
@@ -178,9 +194,12 @@ async function requestFirewallPermissions(force = false) {
     'netsh advfirewall firewall delete rule name="NCord Port 3000" 2>$null',
     'netsh advfirewall firewall delete rule name="NCord Port 3443" 2>$null',
     'netsh advfirewall firewall delete rule name="NCord UDP" 2>$null',
-    `netsh advfirewall firewall add rule name="NCord" dir=in action=allow program="${exePath}" enable=yes`,
-    'netsh advfirewall firewall add rule name="NCord Port 3000" dir=in action=allow protocol=TCP localport=3000 enable=yes',
-    'netsh advfirewall firewall add rule name="NCord UDP" dir=in action=allow protocol=UDP localport=1024-65535 enable=yes'
+    'netsh advfirewall firewall delete rule name="LoveChat" 2>$null',
+    'netsh advfirewall firewall delete rule name="LoveChat Port 3000" 2>$null',
+    'netsh advfirewall firewall delete rule name="LoveChat UDP" 2>$null',
+    `netsh advfirewall firewall add rule name="LoveChat" dir=in action=allow program="${exePath}" enable=yes`,
+    'netsh advfirewall firewall add rule name="LoveChat Port 3000" dir=in action=allow protocol=TCP localport=3000 enable=yes',
+    'netsh advfirewall firewall add rule name="LoveChat UDP" dir=in action=allow protocol=UDP localport=1024-65535 enable=yes'
   ].join('; ');
 
   const encoded = Buffer.from(innerCommands, 'utf16le').toString('base64');
@@ -207,7 +226,7 @@ async function requestFirewallPermissions(force = false) {
 // ==========================================
 
 /**
- * Testa se um servidor HTTP do NCord responde no host e porta fornecidos.
+ * Testa se um servidor HTTP do LoveChat responde no host e porta fornecidos.
  */
 function probeHttpServer(host, port = SERVER_PORT, timeoutMs = 4000) {
   return new Promise((resolve) => {
@@ -246,7 +265,7 @@ async function startLocalServer() {
   try {
     const isAlive = await probeHttpServer('127.0.0.1', SERVER_PORT, 600);
     if (isAlive) {
-      console.log(`[Electron] Servidor NCord já está ativo na porta ${SERVER_PORT}`);
+      console.log(`[Electron] Servidor LoveChat já está ativo na porta ${SERVER_PORT}`);
       return true;
     }
 
@@ -272,7 +291,7 @@ function stopLocalServer() {
 // 2. CRIAÇÃO DA JANELA PRINCIPAL
 // ==========================================
 async function createWindow() {
-  console.log('[Electron] 🚀 Iniciando servidor local do NCord na porta 3000...');
+  console.log('[Electron] 🚀 Iniciando servidor local do LoveChat na porta 3000...');
   await startLocalServer();
 
   const iconPath = path.join(__dirname, 'public', 'icon-512.png');
@@ -282,7 +301,7 @@ async function createWindow() {
     height: 800,
     minWidth: 940,
     minHeight: 620,
-    title: 'NCord',
+    title: 'LoveChat',
     icon: iconPath,
     backgroundColor: '#120b18',
     autoHideMenuBar: true,
@@ -541,11 +560,22 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
         }
 
         console.log(`[Electron] Fonte confirmada para transmissão: [${chosen.id}] "${chosen.name}" (tipo: ${isWindowChoice ? 'JANELA' : 'TELA'}, áudio: ${hasProcessAudio ? 'EXCLUSIVO-PROCESSO (WASAPI)' : (streamOptions.audio ? 'LOOPBACK-SISTEMA' : 'DESATIVADO')})`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('process-audio-selected', {
+            success: true,
+            isWindow: isWindowChoice,
+            hasProcessAudio,
+            sourceId: chosen.id,
+            sourceName: chosen.name
+          });
+        }
         cb(streamOptions);
         return {
           success: true,
           isWindow: isWindowChoice,
-          hasProcessAudio
+          hasProcessAudio,
+          sourceId: chosen.id,
+          sourceName: chosen.name
         };
       } else {
         console.warn('[Electron] Nenhuma fonte correspondente encontrada. Cancelando.');
@@ -576,6 +606,95 @@ ipcMain.handle('stop-process-audio', () => {
   return { success: true };
 });
 
+// ==========================================
+// CANAIS IPC DO MIXER DE ÁUDIO DE TRANSMISSÃO
+// ==========================================
+ipcMain.handle('get-audio-mixer-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window', 'screen'],
+      thumbnailSize: { width: 120, height: 80 },
+      fetchWindowIcons: true
+    });
+
+    const currentPid = process.pid;
+    const list = [];
+    const seenPids = new Set();
+
+    for (const source of sources) {
+      const isWindow = source.id.startsWith('window:');
+      let pid = 0;
+      if (isWindow) {
+        const hwnd = parseInt(source.id.split(':')[1], 10);
+        pid = getPidFromHwnd(hwnd);
+      }
+
+      if (pid > 0 && !seenPids.has(pid)) {
+        seenPids.add(pid);
+        list.push({
+          id: source.id,
+          name: source.name,
+          pid,
+          appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
+          thumbnail: source.thumbnail.toDataURL(),
+          isWindow: true,
+          isLoveChat: (pid === currentPid)
+        });
+      }
+    }
+
+    return {
+      success: true,
+      currentPid,
+      apps: list
+    };
+  } catch (err) {
+    console.error('[Electron] Erro ao listar fontes do mixer:', err);
+    return { success: false, apps: [], error: err.message };
+  }
+});
+
+ipcMain.handle('start-mixer-process-audio', async (event, { pid, includeProcessTree = true }) => {
+  if (!LoopbackCapture || !pid || pid <= 0) {
+    return { success: false, reason: 'Módulo WASAPI indisponível ou PID inválido' };
+  }
+
+  try {
+    if (mixerActiveCaptures.has(pid)) {
+      try { mixerActiveCaptures.get(pid).stop(); } catch (e) {}
+      mixerActiveCaptures.delete(pid);
+    }
+
+    console.log(`[Electron] Iniciando captura de mixer WASAPI para PID ${pid} (árvore: ${includeProcessTree})...`);
+    const capturer = new LoopbackCapture();
+    capturer.start(pid, includeProcessTree, (chunk) => {
+      if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+        mainWindow.webContents.send('mixer-process-audio-chunk', {
+          pid,
+          chunk
+        });
+      }
+    });
+
+    mixerActiveCaptures.set(pid, capturer);
+    return { success: true, pid };
+  } catch (err) {
+    console.error(`[Electron] Falha ao iniciar mixer para PID ${pid}:`, err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('stop-mixer-process-audio', async (event, pid) => {
+  if (pid && mixerActiveCaptures.has(pid)) {
+    try {
+      mixerActiveCaptures.get(pid).stop();
+    } catch (e) {}
+    mixerActiveCaptures.delete(pid);
+    return { success: true, pid };
+  }
+  return { success: true };
+});
+
 // Alternar para servidor remoto (IP do parceiro)
 ipcMain.handle('connect-to-server', async (event, targetIp) => {
   const cleanIp = (targetIp || '')
@@ -595,7 +714,7 @@ ipcMain.handle('connect-to-server', async (event, targetIp) => {
     console.warn(`[Electron] Não foi possível alcançar ${cleanIp}:${SERVER_PORT}.`);
     return {
       success: false,
-      error: `Não foi possível alcançar o servidor em ${cleanIp}.\nVerifique se o parceiro está com o NCord aberto e se o ZeroTier está conectado!`
+      error: `Não foi possível alcançar o servidor em ${cleanIp}.\nVerifique se o parceiro está com o LoveChat aberto e se o ZeroTier está conectado!`
     };
   }
 
@@ -635,7 +754,7 @@ ipcMain.handle('request-firewall', async () => {
 });
 
 ipcMain.handle('check-firewall', async () => {
-  return await checkFirewallRule('NCord Port 3000');
+  return (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
 });
 
 // Controles de janela

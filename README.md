@@ -1,4 +1,4 @@
-# 💜 NCord - Streaming P2P, Voz, Vídeo e Compartilhamento de Tela
+# 💜 LoveChat - Streaming P2P, Voz, Vídeo e Compartilhamento de Tela
 
 Um aplicativo moderno, privado e leve para streaming de tela, chamadas de voz e vídeo ponto a ponto (P2P), desenvolvido com **Electron**, **Node.js**, **Express** e **WebRTC**.
 
@@ -21,7 +21,7 @@ Projetado especialmente para casais, amigos ou duplas que desejam um espaço ín
 
 ## 🛠️ Tecnologias Utilizadas
 
-- **Frontend**: HTML5, Vanilla CSS3 (Design inspirado no Discord/LoveChat), JavaScript ES6+, [Lucide Icons](https://lucide.dev/)
+- **Frontend**: HTML5, Vanilla CSS3 (Design acolhedor e moderno para casais), JavaScript ES6+, [Lucide Icons](https://lucide.dev/)
 - **Processo Principal / Desktop**: [Electron](https://www.electronjs.org/)
 - **Backend / Sinalização**: Node.js, Express, [PeerJS Server](https://peerjs.com/)
 - **Comunicação em Tempo Real**: WebRTC (`RTCPeerConnection`, `RTCDataChannel`, `getDisplayMedia`)
@@ -36,8 +36,8 @@ Projetado especialmente para casais, amigos ou duplas que desejam um espaço ín
 
 ### 1. Clonar o Repositório
 ```bash
-git clone https://github.com/SEU_USUARIO/NCord.git
-cd NCord
+git clone https://github.com/SEU_USUARIO/LoveChat.git
+cd LoveChat
 ```
 
 ### 2. Instalar as Dependências
@@ -59,13 +59,13 @@ npm start
 
 ## 📦 Como Compilar o Executável Portátil (.exe)
 
-Para gerar o arquivo único portátil do Windows (`NCord.exe`):
+Para gerar o arquivo único portátil do Windows (`LoveChat.exe`):
 
 ```bash
 npm run dist
 ```
 
-O executável final será gerado dentro da pasta `dist/NCord.exe`. Ele é 100% autônomo e pode ser enviado diretamente para o seu parceiro sem necessidade de instalar dependências.
+O executável final será gerado dentro da pasta `dist/LoveChat.exe`. Ele é 100% autônomo e pode ser enviado diretamente para o seu parceiro sem necessidade de instalar dependências.
 
 ---
 

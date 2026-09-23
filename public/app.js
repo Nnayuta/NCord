@@ -141,7 +141,7 @@ const loginScreen = document.getElementById('login-screen');
 const roomScreen = document.getElementById('room-screen');
 const joinForm = document.getElementById('join-form');
 const roomInput = document.getElementById('room-input');
-const pinInput = document.getElementById('pin-input');
+
 const btnSubmit = document.getElementById('btn-submit');
 const loginError = document.getElementById('login-error');
 const errorText = document.getElementById('error-text');
@@ -160,6 +160,27 @@ const lblServerStatus = document.getElementById('lbl-server-status');
 const remoteStatusBox = document.getElementById('remote-status-box');
 const statusRemoteDot = document.getElementById('status-remote-dot');
 const lblRemoteStatus = document.getElementById('lbl-remote-status');
+
+// Elementos de Passo de Conexão e Perfil
+const stepServerConnect = document.getElementById('step-server-connect');
+const stepProfileSelect = document.getElementById('step-profile-select');
+const btnHostConnect = document.getElementById('btn-host-connect');
+const btnChangeServer = document.getElementById('btn-change-server');
+const lblConnectedServerDesc = document.getElementById('lbl-connected-server-desc');
+
+function showProfileStep(connected, serverDesc) {
+  if (connected) {
+    if (lblConnectedServerDesc && serverDesc) {
+      lblConnectedServerDesc.textContent = serverDesc;
+    }
+    if (stepServerConnect) stepServerConnect.classList.add('hide');
+    if (stepProfileSelect) stepProfileSelect.classList.remove('hide');
+  } else {
+    if (stepProfileSelect) stepProfileSelect.classList.add('hide');
+    if (stepServerConnect) stepServerConnect.classList.remove('hide');
+  }
+  refreshIcons();
+}
 
 const roomTitleLbl = document.getElementById('room-title-lbl');
 const localNameLbl = document.getElementById('local-name-lbl');
@@ -227,8 +248,26 @@ const overlayLocalVideo = document.getElementById('overlay-local-video');
 const overlayRemoteMic = document.getElementById('overlay-remote-mic');
 const overlayRemoteVideo = document.getElementById('overlay-remote-video');
 
-// Inicialização do Lucide Icons
-lucide.createIcons();
+// ==========================================
+// INICIALIZAÇÃO E ATUALIZAÇÃO DO LUCIDE ICONS
+// ==========================================
+function refreshIcons() {
+  try {
+    if (typeof lucide !== 'undefined' && lucide && typeof lucide.createIcons === 'function') {
+      lucide.createIcons();
+    }
+  } catch (err) {
+    console.warn('Aviso ao renderizar ícones Lucide:', err);
+  }
+}
+window.refreshIcons = refreshIcons;
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', refreshIcons);
+} else {
+  refreshIcons();
+}
+window.addEventListener('load', refreshIcons);
 
 // ==========================================
 // IDENTIFICAÇÃO FIXA DO USUÁRIO (PERFIS)
@@ -451,7 +490,7 @@ async function loadProfilesFromDatabase() {
       if (db.guestAvatar) cachedProfiles.user2.avatar = db.guestAvatar;
     }
     updateLoginProfilesUI();
-    if (window.lucide) window.lucide.createIcons();
+    refreshIcons();
   } catch (e) {
     console.warn('Aviso ao carregar perfis do banco (tentando novamente em breve):', e);
     setTimeout(async () => {
@@ -463,7 +502,7 @@ async function loadProfilesFromDatabase() {
           if (db2.profiles.user2) cachedProfiles.user2 = { ...cachedProfiles.user2, ...db2.profiles.user2 };
         }
         updateLoginProfilesUI();
-        if (window.lucide) window.lucide.createIcons();
+        refreshIcons();
       } catch (err2) {}
     }, 800);
   }
@@ -807,7 +846,7 @@ function setupServerModeSelector() {
     if (btnApplyRemoteIp) {
       btnApplyRemoteIp.disabled = true;
       btnApplyRemoteIp.innerHTML = '<span>Testando...</span> <i data-lucide="loader-2"></i>';
-      if (window.lucide) window.lucide.createIcons();
+      refreshIcons();
     }
 
     showToast(`Testando conexão com ${cleanIp}... 🌐`, 'info');
@@ -833,8 +872,10 @@ function setupServerModeSelector() {
           if (btnSubmit) {
             btnSubmit.classList.add('pulse-attention');
           }
-          if (window.lucide) window.lucide.createIcons();
-          showToast(`Conectado ao parceiro em ${cleanIp}! Clique em "Entrar no Nosso Espaço" 💖`, 'check');
+          // Carrega os perfis diretamente do servidor parceiro conectado
+          await loadProfilesFromDatabase();
+          showProfileStep(true, `Conectado ao Amor (${cleanIp})`);
+          showToast(`Conectado ao servidor do parceiro (${cleanIp})! Escolha quem é você 💕`, 'check');
         } else {
           const errDetail = result.error || `Não foi possível alcançar ${cleanIp}.`;
           if (remoteStatusBox) {
@@ -848,7 +889,7 @@ function setupServerModeSelector() {
             btnApplyRemoteIp.classList.remove('connected');
             btnApplyRemoteIp.innerHTML = '<span>Tentar Novamente</span> <i data-lucide="rotate-cw"></i>';
           }
-          if (window.lucide) window.lucide.createIcons();
+          refreshIcons();
           showToast(errDetail, 'alert-circle');
         }
       } else {
@@ -871,8 +912,9 @@ function setupServerModeSelector() {
           if (btnSubmit) {
             btnSubmit.classList.add('pulse-attention');
           }
-          if (window.lucide) window.lucide.createIcons();
-          showToast(`Conectado ao parceiro em ${cleanIp}! 💖`, 'check');
+          await loadProfilesFromDatabase();
+          showProfileStep(true, `Conectado ao Amor (${cleanIp})`);
+          showToast(`Conectado ao parceiro em ${cleanIp}! Escolha quem é você 💕`, 'check');
         } else {
           throw new Error('Servidor não respondeu.');
         }
@@ -890,13 +932,13 @@ function setupServerModeSelector() {
         btnApplyRemoteIp.classList.remove('connected');
         btnApplyRemoteIp.innerHTML = '<span>Tentar Novamente</span> <i data-lucide="rotate-cw"></i>';
       }
-      if (window.lucide) window.lucide.createIcons();
-      showToast(`Não foi possível conectar a ${cleanIp}.\nVerifique se o parceiro está com o NCord aberto e conectado ao ZeroTier.`, 'alert-circle');
+      refreshIcons();
+      showToast(`Não foi possível conectar a ${cleanIp}.\nVerifique se o parceiro está com o LoveChat aberto e conectado ao ZeroTier.`, 'alert-circle');
     } finally {
       if (btnApplyRemoteIp && !btnApplyRemoteIp.classList.contains('connected')) {
         btnApplyRemoteIp.disabled = false;
-        btnApplyRemoteIp.innerHTML = '<span>Ir</span> <i data-lucide="arrow-right"></i>';
-        if (window.lucide) window.lucide.createIcons();
+        btnApplyRemoteIp.innerHTML = '<span>Conectar</span> <i data-lucide="arrow-right"></i>';
+        refreshIcons();
       } else if (btnApplyRemoteIp) {
         btnApplyRemoteIp.disabled = false;
       }
@@ -915,6 +957,40 @@ function setupServerModeSelector() {
       }
     });
   }
+
+  if (btnHostConnect) {
+    btnHostConnect.addEventListener('click', async () => {
+      currentServerHost = '127.0.0.1';
+      isRemoteServerMode = false;
+      btnHostConnect.disabled = true;
+      btnHostConnect.innerHTML = '<span>Iniciando...</span> <i data-lucide="loader-2"></i>';
+      refreshIcons();
+
+      try {
+        if (window.electronAPI && window.electronAPI.hostLocalServer) {
+          await window.electronAPI.hostLocalServer();
+        }
+        await loadProfilesFromDatabase();
+        const desc = myIp ? `Anfitrião (Meu PC: ${myIp})` : 'Servidor Local (Meu PC)';
+        showProfileStep(true, desc);
+        showToast('Servidor local pronto! Escolha seu perfil 💕', 'check');
+      } catch (e) {
+        console.error('Erro ao conectar como anfitrião:', e);
+        showToast('Erro ao iniciar conexão com servidor local.', 'alert-circle');
+      } finally {
+        btnHostConnect.disabled = false;
+        btnHostConnect.innerHTML = '<span>Continuar como Anfitrião</span> <i data-lucide="arrow-right"></i>';
+        refreshIcons();
+      }
+    });
+  }
+
+  if (btnChangeServer) {
+    btnChangeServer.addEventListener('click', () => {
+      showProfileStep(false);
+      showToast('Selecione o modo de conexão com o servidor.', 'info');
+    });
+  }
 }
 
 // Inicializar seletor de modo
@@ -924,13 +1000,15 @@ setupServerModeSelector();
 // AUTO-PREENCHIMENTO E RECONEXÃO
 // ==========================================
 async function initApp() {
-  // Inicializar seletor de perfil e carregar perfis
+  // Inicializar seletor de perfil
   setupProfileSelector();
 
   // CRÍTICO: Obter IP local antes de qualquer conexão para que fixMDNS funcione
   await fetchMyIp();
   await checkServerStatus();
-  await loadProfilesFromDatabase();
+
+  // Iniciar sempre no Passo 1 (Conexão ao Servidor), ocultando os perfis até conectar
+  showProfileStep(false);
 
   const savedQuality = localStorage.getItem('lovechat_quality_preset');
 
@@ -1086,7 +1164,7 @@ joinForm.addEventListener('submit', async (e) => {
     statusLocalVideoWrapper.innerHTML = '<i data-lucide="video-off" class="muted"></i>';
   }
 
-  lucide.createIcons();
+  refreshIcons();
 
   // Configurar layout inicial de vídeo
   updateVideoLayout();
@@ -1475,7 +1553,7 @@ function initializePeerAsGuest() {
   let peerTimeout = setTimeout(() => {
     if (!peer || !peer.open) {
       console.warn('⚠️ Timeout ao conectar ao servidor de sinalização PeerJS (Guest).');
-      showLoginError('Tempo esgotado ao conectar ao anfitrião. Verifique se o parceiro está com o NCord aberto e o ZeroTier ativo.');
+      showLoginError('Tempo esgotado ao conectar ao anfitrião. Verifique se o parceiro está com o LoveChat aberto e o ZeroTier ativo.');
       btnSubmit.disabled = false;
       btnSubmit.style.opacity = '1';
       stopLocalMediaTracks();
@@ -2095,7 +2173,7 @@ function updateRemoteIndicators(audioEnabled, videoEnabled) {
     remoteAvatar.classList.remove('hide');
     remoteVideo.classList.add('hide');
   }
-  lucide.createIcons();
+  refreshIcons();
 }
 
 // ==========================================
@@ -2160,7 +2238,7 @@ async function toggleMuteMicrophone() {
     // Tocar som de mutar estilo Discord
     playDiscordSound('mute');
   }
-  lucide.createIcons();
+  refreshIcons();
   sendStateUpdate();
 }
 
@@ -2243,7 +2321,7 @@ async function toggleVideoWebcam() {
     localAvatar.classList.remove('hide');
     statusLocalVideoWrapper.innerHTML = '<i data-lucide="video-off" class="muted"></i>';
   }
-  lucide.createIcons();
+  refreshIcons();
   sendStateUpdate();
 }
 
@@ -2257,6 +2335,33 @@ let processAudioContext = null;
 let processAudioWorkletNode = null;
 let processAudioDestination = null;
 let lastSelectedSourceResult = null;
+let pendingScreenSelectionResolver = null;
+
+function waitForScreenSelectionResult() {
+  return new Promise((resolve) => {
+    if (lastSelectedSourceResult) {
+      resolve(lastSelectedSourceResult);
+      return;
+    }
+    pendingScreenSelectionResolver = resolve;
+    // Timeout de segurança (10s) para não travar caso o modal seja fechado
+    setTimeout(() => {
+      if (pendingScreenSelectionResolver === resolve) {
+        pendingScreenSelectionResolver = null;
+        resolve(lastSelectedSourceResult);
+      }
+    }, 10000);
+  });
+}
+
+function resolveScreenSelectionResult(result) {
+  lastSelectedSourceResult = result;
+  if (pendingScreenSelectionResolver) {
+    const fn = pendingScreenSelectionResolver;
+    pendingScreenSelectionResolver = null;
+    fn(result);
+  }
+}
 
 async function setupProcessAudioTrack() {
   cleanupProcessAudio();
@@ -2265,6 +2370,10 @@ async function setupProcessAudioTrack() {
     processAudioContext = new (window.AudioContext || window.webkitAudioContext)({
       sampleRate: 48000
     });
+
+    if (processAudioContext.state === 'suspended') {
+      await processAudioContext.resume();
+    }
 
     // Registrar processador AudioWorklet de baixa latência
     await processAudioContext.audioWorklet.addModule('audio-stream-processor.js');
@@ -2280,21 +2389,23 @@ async function setupProcessAudioTrack() {
 
     if (window.electronAPI && window.electronAPI.onProcessAudioChunk) {
       window.electronAPI.onProcessAudioChunk((chunk) => {
-        if (processAudioWorkletNode && processAudioWorkletNode.port) {
+        if (processAudioWorkletNode && processAudioWorkletNode.port && chunk) {
           const uint8 = new Uint8Array(chunk);
-          const bufferCopy = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength);
-          processAudioWorkletNode.port.postMessage({ type: 'pcm', buffer: bufferCopy }, [bufferCopy]);
+          if (uint8.byteLength > 0) {
+            const bufferCopy = uint8.buffer.slice(uint8.byteOffset, uint8.byteOffset + uint8.byteLength);
+            processAudioWorkletNode.port.postMessage({ type: 'pcm', buffer: bufferCopy }, [bufferCopy]);
+          }
         }
       });
     }
 
     const audioTracks = processAudioDestination.stream.getAudioTracks();
     if (audioTracks && audioTracks.length > 0) {
-      console.log('🎧 [NCord] Faixa de áudio exclusivo de janela criada com sucesso via AudioWorklet!');
+      console.log('🎧 [LoveChat] Faixa de áudio exclusivo de janela criada com sucesso via AudioWorklet!');
       return audioTracks[0];
     }
   } catch (err) {
-    console.error('❌ [NCord] Erro ao configurar AudioWorklet para áudio exclusivo de janela:', err);
+    console.error('❌ [LoveChat] Erro ao configurar AudioWorklet para áudio exclusivo de janela:', err);
     cleanupProcessAudio();
   }
   return null;
@@ -2338,7 +2449,11 @@ btnScreen.addEventListener('click', async () => {
       return;
     }
     try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({
+      lastSelectedSourceResult = null;
+      pendingScreenSelectionResolver = null;
+
+      // Iniciar requisição do capturador de tela
+      const displayMediaPromise = navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: 1920, max: 3840 },
           height: { ideal: 1080, max: 2160 },
@@ -2348,9 +2463,18 @@ btnScreen.addEventListener('click', async () => {
         audio: true
       });
 
+      // Aguardar tanto a resolução da mídia do Chromium quanto a confirmação da fonte do Electron
+      const [mediaStream, selResult] = await Promise.all([
+        displayMediaPromise,
+        window.electronAPI ? waitForScreenSelectionResult() : Promise.resolve(null)
+      ]);
+
+      screenStream = mediaStream;
+      const activeResult = selResult || lastSelectedSourceResult;
+
       // Se a fonte selecionada for uma janela com áudio de processo exclusivo via WASAPI
-      if (lastSelectedSourceResult && lastSelectedSourceResult.hasProcessAudio) {
-        console.log('🎧 [NCord] Injetando faixa de áudio exclusivo de janela no screenStream...');
+      if (activeResult && activeResult.hasProcessAudio) {
+        console.log('🎧 [LoveChat] Injetando faixa de áudio exclusivo de janela no screenStream...');
         const isolatedAudioTrack = await setupProcessAudioTrack();
         if (isolatedAudioTrack) {
           // Remover qualquer faixa padrão silenciosa ou redundante
@@ -2380,13 +2504,14 @@ btnScreen.addEventListener('click', async () => {
         await startScreenOffer(screenStream);
       }
 
-      const hasIsolated = lastSelectedSourceResult && lastSelectedSourceResult.hasProcessAudio;
-      showToast(hasIsolated ? 'Compartilhando janela com áudio exclusivo! 🎧💻' : 'Compartilhamento de tela ativo! 💻', 'info');
+      const hasIsolated = activeResult && activeResult.hasProcessAudio;
+      showToast(hasIsolated ? 'Transmitindo janela com áudio exclusivo! 🎧💻' : 'Compartilhamento de tela ativo! 💻', 'info');
 
     } catch (err) {
       console.error('Falha ao compartilhar tela:', err);
       cleanupProcessAudio();
       lastSelectedSourceResult = null;
+      pendingScreenSelectionResolver = null;
       isScreenSharing = false;
       btnScreen.classList.remove('active');
       if (err.name === 'NotAllowedError' || err.name === 'AbortError') {
@@ -2408,6 +2533,7 @@ function stopScreenSharing() {
 
   cleanupProcessAudio();
   lastSelectedSourceResult = null;
+  pendingScreenSelectionResolver = null;
 
   if (screenStream) {
     screenStream.getTracks().forEach(t => {
@@ -2498,20 +2624,23 @@ function showRemoteScreenShare(stream) {
   screenVideo.play().catch(e => console.error(e));
 
   // Extrair e reproduzir áudio do compartilhamento de tela separadamente
-  const audioTrack = stream.getAudioTracks()[0];
-  if (audioTrack) {
-    const oldAudio = document.getElementById('remote-screen-audio');
-    if (oldAudio) oldAudio.remove();
+  const audioTracks = stream.getAudioTracks();
+  if (audioTracks && audioTracks.length > 0) {
+    const audioTrack = audioTracks[0];
+    let audioEl = document.getElementById('remote-screen-audio');
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = 'remote-screen-audio';
+      audioEl.autoplay = true;
+      document.body.appendChild(audioEl);
+    }
 
-    const audioEl = document.createElement('audio');
-    audioEl.id = 'remote-screen-audio';
     audioEl.srcObject = new MediaStream([audioTrack]);
-    audioEl.autoplay = true;
     if (streamVolSlider) {
       audioEl.volume = parseFloat(streamVolSlider.value) || 1;
       audioEl.muted = (parseFloat(streamVolSlider.value) === 0);
     }
-    document.body.appendChild(audioEl);
+    audioEl.play().catch(e => console.warn('Reprodução do áudio de tela requer interação ou foi bloqueada:', e));
   }
 
   screenShareCard.classList.remove('hide');
@@ -2759,17 +2888,31 @@ function stopVolumeMonitoring(isLocal) {
 }
 
 // ==========================================
-// ATALHOS DE TECLADO & COPIAR LINK
+// ATALHOS DE TECLADO GLOBAIS (M / F / T)
 // ==========================================
 window.addEventListener('keydown', (e) => {
-  if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
-    return;
-  }
+  const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+  if (tag === 'input' || tag === 'textarea') return;
 
+  // Tecla M: Mutar/Desmutar microfone
   if (e.key === 'm' || e.key === 'M') {
     e.preventDefault();
     toggleMuteMicrophone();
     showToast(isAudioMuted ? 'Microfone Mutado 🤫' : 'Microfone Ativo 🎙️', 'info');
+  }
+
+  // Tecla F: Tela cheia na transmissão de tela
+  if (e.key === 'f' || e.key === 'F') {
+    if (!screenShareCard.classList.contains('hide')) {
+      e.preventDefault();
+      toggleScreenShareFullscreen();
+    }
+  }
+
+  // Tecla T: Modo Teatro / Alternar Sidebar
+  if (e.key === 't' || e.key === 'T') {
+    e.preventDefault();
+    toggleSidebarCollapse();
   }
 });
 
@@ -2779,14 +2922,14 @@ btnFullscreen.addEventListener('click', () => {
       .then(() => {
         btnFullscreen.classList.add('active');
         btnFullscreen.innerHTML = '<i data-lucide="minimize"></i>';
-        lucide.createIcons();
+        refreshIcons();
       })
       .catch(err => console.error('Erro tela cheia:', err));
   } else {
     document.exitFullscreen();
     btnFullscreen.classList.remove('active');
     btnFullscreen.innerHTML = '<i data-lucide="maximize"></i>';
-    lucide.createIcons();
+    refreshIcons();
   }
 });
 
@@ -2939,7 +3082,7 @@ function disconnectAndReset() {
   btnVideo.classList.add('muted');
   btnVideo.innerHTML = '<i data-lucide="video-off"></i>';
   btnScreen.classList.remove('active');
-  lucide.createIcons();
+  refreshIcons();
 
   isAudioMuted = true;
   isVideoOff = true;
@@ -3085,7 +3228,7 @@ function showToast(message, iconName = 'info') {
 
   toastText.textContent = message;
   toastIcon.setAttribute('data-lucide', iconName);
-  lucide.createIcons();
+  refreshIcons();
 
   toast.classList.remove('hide');
 
@@ -3159,10 +3302,8 @@ function startAdaptiveBitrateMonitor() {
   }, 5000);
 }
 
-// Detecção automática de fechamento de aba / recarregamento para desconectar limpo
-window.addEventListener('beforeunload', () => {
-  disconnectAndReset();
-});
+// NOTA: beforeunload já registrado em handlePageUnload() (linhas acima).
+// disconnectAndReset() é chamado de dentro de handlePageUnload para evitar duplicação.
 
 // ==========================================
 // CONTROLES DO QUADRO DO CASAL & APELIDOS & AVATAR
@@ -3446,15 +3587,26 @@ function renderNotes(notes) {
     li.appendChild(btnDel);
     boardNotesList.appendChild(li);
   });
-  lucide.createIcons();
+  refreshIcons();
 }
 
 // ==========================================
-// EFEITOS SONOROS ESTILO DISCORD
+// EFEITOS SONOROS ESTILO DISCORD (AudioContext compartilhado)
 // ==========================================
+let _sharedAudioCtx = null;
+function getSharedAudioContext() {
+  if (!_sharedAudioCtx || _sharedAudioCtx.state === 'closed') {
+    _sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (_sharedAudioCtx.state === 'suspended') {
+    _sharedAudioCtx.resume().catch(() => {});
+  }
+  return _sharedAudioCtx;
+}
+
 function playDiscordSound(type) {
   try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioCtx = getSharedAudioContext();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
@@ -3566,7 +3718,7 @@ function toggleSidebarCollapse(forceState) {
       btnStreamTheater.title = 'Modo Teatro / Ocultar Barra (Tecla T)';
     }
   }
-  lucide.createIcons();
+  refreshIcons();
 }
 
 if (btnToggleSidebar) {
@@ -3688,7 +3840,7 @@ function handleFullscreenChange() {
       screenFullscreenIdleTimer = null;
     }
   }
-  lucide.createIcons();
+  refreshIcons();
 }
 
 document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -3707,7 +3859,7 @@ function updateStreamVolIcon(val) {
   } else {
     streamVolIcon.setAttribute('data-lucide', 'volume-2');
   }
-  lucide.createIcons();
+  refreshIcons();
 }
 
 if (streamVolSlider) {
@@ -3757,7 +3909,7 @@ if (btnStreamFit) {
       showToast('Ajuste: Proporção Original (sem cortes)', 'info');
       if (icon) icon.setAttribute('data-lucide', 'scan');
     }
-    lucide.createIcons();
+    refreshIcons();
   });
 }
 
@@ -3777,89 +3929,9 @@ if (btnSidebarWatch) {
   });
 }
 
-// ==========================================
-// ATALHOS DE TECLADO GLOBAIS (F / T)
-// ==========================================
-window.addEventListener('keydown', (e) => {
-  // Ignorar quando digitando em inputs
-  const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-  if (tag === 'input' || tag === 'textarea') return;
+// NOTA: Atalhos de teclado F/T unificados no listener global de keydown (acima).
 
-  // Tecla F: Tela cheia na transmissão de tela
-  if (e.key === 'f' || e.key === 'F') {
-    if (!screenShareCard.classList.contains('hide')) {
-      e.preventDefault();
-      toggleScreenShareFullscreen();
-    }
-  }
 
-  // Tecla T: Modo Teatro / Alternar Sidebar
-  if (e.key === 't' || e.key === 'T') {
-    e.preventDefault();
-    toggleSidebarCollapse();
-  }
-});
-
-// ==========================================
-// GERADOR DE ÍCONES PNG PARA PWA (AUTOMÁTICO CLIENT-SIDE)
-// ==========================================
-async function checkAndGeneratePWAIcons() {
-  if (window.electronAPI) return; // No app Electron os ícones já estão compilados e locais
-  try {
-    // Verificar se os ícones PNG já foram gerados e estão disponíveis no servidor
-    const check192 = await fetch('/icon-192.png', { method: 'HEAD' });
-    const check512 = await fetch('/icon-512.png', { method: 'HEAD' });
-
-    if (check192.ok && check512.ok) {
-      console.log('✨ Ícones PNG do PWA já estão prontos no servidor.');
-      return;
-    }
-  } catch (err) {
-    // Se falhar a checagem, assume que precisa gerar
-  }
-
-  console.log('⚙️ Gerando ícones PWA PNG a partir do SVG original...');
-
-  const img = new Image();
-  img.onload = async () => {
-    // 1. Gerar icon-192.png
-    const canvas192 = document.createElement('canvas');
-    canvas192.width = 192;
-    canvas192.height = 192;
-    const ctx192 = canvas192.getContext('2d');
-    ctx192.drawImage(img, 0, 0, 192, 192);
-    const base64_192 = canvas192.toDataURL('image/png');
-
-    // 2. Gerar icon-512.png
-    const canvas512 = document.createElement('canvas');
-    canvas512.width = 512;
-    canvas512.height = 512;
-    const ctx512 = canvas512.getContext('2d');
-    ctx512.drawImage(img, 0, 0, 512, 512);
-    const base64_512 = canvas512.toDataURL('image/png');
-
-    // 3. Enviar para o servidor persistir na pasta public/
-    try {
-      await fetch('/api/save-icon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'icon-192.png', base64: base64_192 })
-      });
-      await fetch('/api/save-icon', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'icon-512.png', base64: base64_512 })
-      });
-      console.log('✅ Ícones PNG gerados e salvos no servidor com sucesso.');
-    } catch (e) {
-      console.error('Falha ao salvar ícones PNG gerados:', e);
-    }
-  };
-  img.src = '/icon.svg';
-}
-
-// Disparar geração na inicialização do script
-checkAndGeneratePWAIcons();
 
 // ==========================================
 // CONTROLE DO MENU DE QUALIDADE DE TRANSMISSÃO
@@ -3927,7 +3999,7 @@ if (btnQuality && qualityMenu) {
     e.stopPropagation();
     qualityMenu.classList.toggle('hide');
     btnQuality.classList.toggle('active', !qualityMenu.classList.contains('hide'));
-    lucide.createIcons();
+    refreshIcons();
   });
 }
 
@@ -4000,7 +4072,7 @@ function setupElectronScreenPicker() {
       } else {
         lblAudioDesc.innerHTML = '<span style="color:#60a5fa;font-weight:600;"><i data-lucide="monitor" style="display:inline-block;width:12px;height:12px;vertical-align:middle;margin-right:4px;"></i>Áudio do Sistema</span> — Transmite todos os sons do computador na tela selecionada.';
       }
-      if (window.lucide) window.lucide.createIcons();
+      refreshIcons();
     }
   }
 
@@ -4055,9 +4127,7 @@ function setupElectronScreenPicker() {
       grid.appendChild(card);
     });
 
-    if (window.lucide) {
-      window.lucide.createIcons();
-    }
+    refreshIcons();
   }
 
   if (tabApps) {
@@ -4092,8 +4162,11 @@ function setupElectronScreenPicker() {
     selectedSourceId = null;
     selectedSourceName = null;
     if (btnConfirm) btnConfirm.disabled = true;
-    if (cancel && window.electronAPI && window.electronAPI.cancelDesktopSource) {
-      window.electronAPI.cancelDesktopSource();
+    if (cancel) {
+      resolveScreenSelectionResult({ success: false, cancelled: true });
+      if (window.electronAPI && window.electronAPI.cancelDesktopSource) {
+        window.electronAPI.cancelDesktopSource();
+      }
     }
   }
 
@@ -4123,12 +4196,26 @@ function setupElectronScreenPicker() {
       const targetId = selectedSourceId;
       const targetName = selectedSourceName;
       closeModal(false);
-      lastSelectedSourceResult = await window.electronAPI.selectDesktopSource(targetId, withAudio, targetName);
+      try {
+        const res = await window.electronAPI.selectDesktopSource(targetId, withAudio, targetName);
+        resolveScreenSelectionResult(res);
+      } catch (err) {
+        console.error('Erro ao selecionar desktop source:', err);
+        resolveScreenSelectionResult({ success: false, error: err.message });
+      }
+    });
+  }
+
+  // Ouvir evento rápido de confirmação de áudio emitido pelo processo principal do Electron
+  if (window.electronAPI && window.electronAPI.onProcessAudioSelected) {
+    window.electronAPI.onProcessAudioSelected((data) => {
+      console.log('📡 [LoveChat] Evento de áudio exclusivo recebido:', data);
+      resolveScreenSelectionResult(data);
     });
   }
 
   // Ouvir evento emitido pelo processo principal do Electron
-  if (window.electronAPI.onOpenScreenPicker) {
+  if (window.electronAPI && window.electronAPI.onOpenScreenPicker) {
     window.electronAPI.onOpenScreenPicker(async () => {
       try {
         cachedDesktopSources = await window.electronAPI.getDesktopSources();
@@ -4142,7 +4229,7 @@ function setupElectronScreenPicker() {
         renderSources();
         if (overlay) overlay.classList.remove('hide');
         modal.classList.remove('hide');
-        if (window.lucide) window.lucide.createIcons();
+        refreshIcons();
       } catch (e) {
         console.error('Erro ao abrir seletor nativo de tela:', e);
         closeModal(true);
@@ -4158,10 +4245,10 @@ setupElectronScreenPicker();
 // TRATAMENTO GLOBAL DE ERROS E SEGURANÇA
 // ==========================================
 window.addEventListener('unhandledrejection', (event) => {
-  console.warn('⚠️ [NCord] Promessa rejeitada não tratada:', event.reason);
+  console.warn('⚠️ [LoveChat] Promessa rejeitada não tratada:', event.reason);
 });
 
 window.addEventListener('error', (event) => {
-  console.warn('⚠️ [NCord] Erro global na janela:', event.message);
+  console.warn('⚠️ [LoveChat] Erro global na janela:', event.message);
 });
 

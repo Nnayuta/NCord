@@ -1,8 +1,8 @@
 {
   "name": "ncord",
-  "productName": "NCord",
+  "productName": "LoveChat",
   "version": "1.0.0",
-  "description": "NCord - Streaming P2P, Voz, Video e Compartilhamento de Tela",
+  "description": "LoveChat - Streaming P2P, Voz, Vídeo e Compartilhamento de Tela",
   "main": "electron-main.js",
   "scripts": {
     "start": "node server.js",
@@ -24,7 +24,7 @@
   },
   "build": {
     "appId": "com.antigravity.ncord",
-    "productName": "NCord",
+    "productName": "LoveChat",
     "compression": "maximum",
     "electronLanguages": [
       "pt-BR",
@@ -40,7 +40,7 @@
       "icon": "public/icon-512.png"
     },
     "portable": {
-      "artifactName": "NCord.exe"
+      "artifactName": "LoveChat.exe"
     },
     "files": [
       "**/*",
