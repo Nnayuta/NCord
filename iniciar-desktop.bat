@@ -30,10 +30,16 @@ if not exist "node_modules\" (
     echo.
 )
 
+:: 3. Garantir que o frontend React esta compilado
+if not exist "dist-client\" (
+    echo [INFO] Compilando frontend React...
+    call npm run build
+)
+
 echo [OK] Abrindo LoveChat Desktop...
 echo.
 
-:: 3. Iniciar o Electron (que inicia o servidor automaticamente em segundo plano)
+:: 4. Iniciar o Electron (que inicia o servidor automaticamente em segundo plano)
 call npx electron .
 
 if %errorlevel% neq 0 (

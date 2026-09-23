@@ -77,7 +77,11 @@ function rateLimiter(req, res, next) {
 
 app.use(rateLimiter);
 
-// Servir arquivos estáticos do diretório public
+// Servir arquivos estáticos (dist-client se compilado com React/Vite, ou public)
+const distPath = path.join(__dirname, 'dist-client');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Helper para ler banco JSON local
@@ -167,16 +171,20 @@ function getHostNetworkIps() {
   const ifaces = os.networkInterfaces();
   let zerotierIp = null;
   let lanIp = null;
+  const allIps = [];
 
   for (const [name, list] of Object.entries(ifaces)) {
     for (const iface of list) {
       if (iface.family === 'IPv4' && !iface.internal) {
         const lowerName = name.toLowerCase();
+        allIps.push({ name, address: iface.address });
         if (
           lowerName.includes('zerotier') || 
           lowerName.includes('zt') || 
           iface.address.startsWith('10.147.') || 
-          iface.address.startsWith('10.244.')
+          iface.address.startsWith('10.244.') ||
+          iface.address.startsWith('192.168.192.') ||
+          iface.address.startsWith('192.168.195.')
         ) {
           zerotierIp = iface.address;
         } else if (!lanIp && !iface.address.startsWith('127.')) {
@@ -188,16 +196,144 @@ function getHostNetworkIps() {
 
   return {
     zerotierIp: zerotierIp || lanIp || '127.0.0.1',
-    lanIp: lanIp || '127.0.0.1'
+    lanIp: lanIp || '127.0.0.1',
+    allIps
   };
 }
 
 app.get('/api/my-ip', (req, res) => {
-  const { zerotierIp, lanIp } = getHostNetworkIps();
+  const { zerotierIp, lanIp, allIps } = getHostNetworkIps();
   res.json({
     ip: zerotierIp,
     zerotierIp,
-    lanIp
+    lanIp,
+    allIps
+  });
+});
+
+// ==========================================
+// AUTO-DESCOBERTA DE SERVIDORES NA REDE (UDP + PROBE HTTP)
+// ==========================================
+const dgram = require('dgram');
+const discoveredNetworkServers = new Map(); // ip -> { ip, hostName, lastSeen }
+let udpDiscoverySocket = null;
+
+function setupUdpDiscovery() {
+  try {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    udpDiscoverySocket = socket;
+
+    socket.on('error', (err) => {
+      console.warn('[Discovery] Erro no socket UDP:', err.message);
+    });
+
+    socket.on('message', (msg, rinfo) => {
+      try {
+        const data = JSON.parse(msg.toString('utf-8'));
+        if (data && data.app === 'lovechat') {
+          const remoteIp = rinfo.address;
+          const { zerotierIp, lanIp } = getHostNetworkIps();
+          if (remoteIp !== '127.0.0.1' && remoteIp !== zerotierIp && remoteIp !== lanIp) {
+            discoveredNetworkServers.set(remoteIp, {
+              ip: remoteIp,
+              port: data.port || 3000,
+              hostName: data.hostName || 'Amor',
+              lastSeen: Date.now()
+            });
+          }
+        }
+      } catch (e) {}
+    });
+
+    socket.bind(3001, () => {
+      try {
+        socket.setBroadcast(true);
+      } catch (e) {}
+    });
+
+    setInterval(() => {
+      if (!udpDiscoverySocket) return;
+      try {
+        const { zerotierIp, lanIp } = getHostNetworkIps();
+        const db = readDB();
+        const payload = Buffer.from(JSON.stringify({
+          app: 'lovechat',
+          port: PORT,
+          ip: zerotierIp || lanIp,
+          hostName: db.hostName || db.profiles?.user1?.name || 'Amor'
+        }));
+
+        socket.send(payload, 0, payload.length, 3001, '255.255.255.255');
+      } catch (e) {}
+    }, 3000);
+  } catch (err) {
+    console.warn('[Discovery] Falha ao configurar UDP discovery:', err.message);
+  }
+}
+setupUdpDiscovery();
+
+// Endpoint para descobrir servidores na rede ativa (ZeroTier e LAN)
+app.get('/api/discover-servers', async (req, res) => {
+  const { zerotierIp, lanIp } = getHostNetworkIps();
+  const foundServers = [];
+  const now = Date.now();
+
+  for (const [ip, s] of discoveredNetworkServers.entries()) {
+    if (now - s.lastSeen < 15000) {
+      foundServers.push(s);
+    }
+  }
+
+  // Se nenhuma descoberta passiva recente, varrer rapidamente sub-rede ZeroTier
+  if (foundServers.length === 0 && zerotierIp && zerotierIp !== '127.0.0.1') {
+    const parts = zerotierIp.split('.');
+    if (parts.length === 4) {
+      const baseSubnet = `${parts[0]}.${parts[1]}.${parts[2]}`;
+      const myLastOctet = parseInt(parts[3], 10);
+      const probePromises = [];
+
+      for (let i = 1; i <= 254; i++) {
+        if (i === myLastOctet) continue;
+        const targetIp = `${baseSubnet}.${i}`;
+        probePromises.push(
+          new Promise((resolve) => {
+            const reqProbe = http.get(`http://${targetIp}:${PORT}/api/my-ip`, { timeout: 450 }, (resProbe) => {
+              if (resProbe.statusCode >= 200 && resProbe.statusCode < 400) {
+                let body = '';
+                resProbe.on('data', (d) => (body += d));
+                resProbe.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(body);
+                    resolve({ ip: targetIp, port: PORT, isZeroTier: true, ...(parsed || {}) });
+                  } catch (e) {
+                    resolve({ ip: targetIp, port: PORT, isZeroTier: true });
+                  }
+                });
+              } else {
+                resolve(null);
+              }
+            });
+            reqProbe.on('error', () => resolve(null));
+            reqProbe.on('timeout', () => {
+              reqProbe.destroy();
+              resolve(null);
+            });
+          })
+        );
+      }
+
+      const results = await Promise.all(probePromises);
+      for (const r of results) {
+        if (r && r.ip) {
+          foundServers.push(r);
+        }
+      }
+    }
+  }
+
+  res.json({
+    success: true,
+    servers: foundServers
   });
 });
 

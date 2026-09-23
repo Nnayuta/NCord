@@ -357,6 +357,11 @@
               <i data-lucide="scan"></i>
             </button>
 
+            <!-- Mixer de Áudio da Transmissão -->
+            <button id="btn-stream-mixer" class="btn-stream-action" title="Mixer de Áudio da Transmissão">
+              <i data-lucide="sliders-horizontal"></i>
+            </button>
+
             <!-- Modo Teatro (Ocultar Sidebar) -->
             <button id="btn-stream-theater" class="btn-stream-action" title="Modo Teatro / Ocultar Barra (Tecla T)">
               <i data-lucide="panel-left-close"></i>
@@ -432,6 +437,9 @@
         <button id="btn-screen" class="btn-control" title="Compartilhar Tela">
           <i data-lucide="monitor"></i>
         </button>
+        <button id="btn-audio-mixer" class="btn-control" title="Mixer de Áudio da Transmissão">
+          <i data-lucide="sliders-horizontal"></i>
+        </button>
         <button id="btn-quality" class="btn-control" title="Ajustes de Qualidade (Sem Limites / 4K / 60 FPS)">
           <i data-lucide="sparkles"></i>
         </button>
@@ -442,6 +450,63 @@
           <i data-lucide="phone-off"></i>
         </button>
       </footer>
+
+      <!-- Menu Popover do Mixer de Áudio de Transmissão -->
+      <div id="audio-mixer-popover" class="audio-mixer-popover hide">
+        <div class="quality-header">
+          <div class="quality-title">
+            <i data-lucide="sliders-horizontal"></i>
+            <span>Mixer de Áudio da Transmissão</span>
+          </div>
+          <button id="btn-close-mixer" class="btn-close-quality" title="Fechar">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+        <p class="quality-subtitle">Escolha quais programas transmitem som e ajuste volumes individuais na live</p>
+
+        <!-- Card Anti-Eco Rápido -->
+        <div class="mixer-anti-echo-card">
+          <div class="mixer-anti-echo-info">
+            <div class="mixer-anti-echo-title"><i data-lucide="shield-check" style="width:16px;height:16px;color:#38bdf8;"></i> Anti-Eco / Silenciar LoveChat</div>
+            <div class="mixer-anti-echo-desc">Impede que o parceiro ouça a própria voz na live ao transmitir a tela inteira.</div>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="chk-mixer-anti-echo" checked>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
+        <!-- Volume Master da Transmissão -->
+        <div class="mixer-master-card">
+          <div class="mixer-master-header">
+            <span class="mixer-master-label"><i data-lucide="volume-2"></i> Volume Master da Live</span>
+            <span id="lbl-mixer-master-val" class="mixer-vol-val">100%</span>
+          </div>
+          <div class="mixer-slider-row">
+            <button id="btn-mixer-master-mute" class="btn-mixer-mute" title="Mutar Som da Live">
+              <i data-lucide="volume-2" id="icon-mixer-master-mute"></i>
+            </button>
+            <input type="range" id="slider-mixer-master" min="0" max="1.5" step="0.05" value="1" class="mixer-slider">
+          </div>
+        </div>
+
+        <!-- Lista de Aplicativos Detectados no Windows -->
+        <div class="mixer-section-header">
+          <span>APLICATIVOS DETECTADOS</span>
+          <button id="btn-refresh-mixer" class="btn-refresh-mixer" title="Atualizar Lista de Programas">
+            <i data-lucide="rotate-cw"></i> Atualizar
+          </button>
+        </div>
+
+        <div id="mixer-apps-list" class="mixer-apps-container">
+          <div class="mixer-loading"><i data-lucide="loader-2" class="spin"></i> Carregando programas abertos...</div>
+        </div>
+
+        <div class="mixer-footer-tip">
+          <i data-lucide="sparkles" style="width:13px;height:13px;color:#c084fc;"></i>
+          <span>Processamento WASAPI nativo de alta fidelidade sem delay.</span>
+        </div>
+      </div>
 
       <!-- Menu Popover de Qualidade de Transmissão -->
       <div id="quality-menu" class="quality-menu-popover hide">

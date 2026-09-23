@@ -315,8 +315,11 @@ async function createWindow() {
     }
   });
 
-  // Carregar o arquivo index.html LOCALMENTE (100% nativo)
-  const indexPath = path.join(__dirname, 'public', 'index.html');
+  // Carregar o arquivo index.html LOCALMENTE (dist-client se compilado React/Vite, ou public)
+  const distIndexPath = path.join(__dirname, 'dist-client', 'index.html');
+  const fallbackIndexPath = path.join(__dirname, 'public', 'index.html');
+  const indexPath = fs.existsSync(distIndexPath) ? distIndexPath : fallbackIndexPath;
+
   mainWindow.loadFile(indexPath).catch((err) => {
     console.error('[Electron] Erro crítico ao carregar index.html:', err);
   });
@@ -612,7 +615,7 @@ ipcMain.handle('stop-process-audio', () => {
 ipcMain.handle('get-audio-mixer-sources', async () => {
   try {
     const sources = await desktopCapturer.getSources({
-      types: ['window', 'screen'],
+      types: ['window'],
       thumbnailSize: { width: 120, height: 80 },
       fetchWindowIcons: true
     });
@@ -629,20 +632,56 @@ ipcMain.handle('get-audio-mixer-sources', async () => {
         pid = getPidFromHwnd(hwnd);
       }
 
-      if (pid > 0 && !seenPids.has(pid)) {
-        seenPids.add(pid);
+      // Se pid não foi resolvido via HWND, usar HWND como fallback numérico para identificação
+      const targetPid = pid > 0 ? pid : (isWindow ? parseInt(source.id.split(':')[1], 10) : 0);
+
+      if (source.name && source.name !== 'LoveChat' && !seenPids.has(source.name)) {
+        seenPids.add(source.name);
         list.push({
           id: source.id,
           name: source.name,
-          pid,
+          pid: targetPid,
           appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
-          thumbnail: source.thumbnail.toDataURL(),
+          thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null,
           isWindow: true,
           isLoveChat: (pid === currentPid)
         });
       }
     }
 
+    // Se o capturador não encontrou muitas janelas, complementar com Get-Process no Windows
+    if (list.length <= 1 && process.platform === 'win32') {
+      try {
+        const psOutput = await new Promise((resolve) => {
+          exec('powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -ne \'\' } | Select-Object Id, ProcessName, MainWindowTitle | ConvertTo-Json"', (err, stdout) => {
+            if (err || !stdout) return resolve([]);
+            try {
+              const parsed = JSON.parse(stdout);
+              resolve(Array.isArray(parsed) ? parsed : [parsed]);
+            } catch (e) {
+              resolve([]);
+            }
+          });
+        });
+
+        for (const p of psOutput) {
+          if (p.Id && p.MainWindowTitle && p.Id !== currentPid && !seenPids.has(p.MainWindowTitle)) {
+            seenPids.add(p.MainWindowTitle);
+            list.push({
+              id: `process:${p.Id}`,
+              name: p.MainWindowTitle || p.ProcessName,
+              pid: p.Id,
+              appIcon: null,
+              thumbnail: null,
+              isWindow: true,
+              isLoveChat: false
+            });
+          }
+        }
+      } catch (e) {}
+    }
+
+    console.log(`[Electron] Mixer de áudio encontrou ${list.length} aplicativos.`);
     return {
       success: true,
       currentPid,

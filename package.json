@@ -6,21 +6,29 @@
   "main": "electron-main.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js",
+    "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,VITE\" -c \"cyan,magenta\" \"node server.js\" \"vite\"",
+    "build": "vite build",
     "desktop": "electron .",
-    "electron": "electron .",
-    "dist": "electron-builder --win portable"
+    "dev:desktop": "concurrently -k -p \"[{name}]\" -n \"SERVER,VITE,DESKTOP\" -c \"cyan,magenta,yellow\" \"node server.js\" \"vite\" \"electron .\"",
+    "dist": "npm run build && electron-builder --win portable"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "koffi": "^3.2.1",
     "loopback-capture": "^3.0.2",
-    "peer": "^1.0.2"
+    "lucide-react": "^1.47.0",
+    "peer": "^1.0.2",
+    "peerjs": "^1.5.5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
     "electron": "^44.3.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "vite": "^8.3.0"
   },
   "build": {
     "appId": "com.antigravity.ncord",
