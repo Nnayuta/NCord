@@ -71,19 +71,19 @@ export function FloatingParticipantAvatars() {
     );
   }
 
-  const hasLocalVideo = !isVideoOff && localStream && localStream.getVideoTracks().some((t) => t.enabled);
-  const hasRemoteVideo = !isRemoteVideoOff && remoteStream && remoteStream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live');
+  const hasLocalVideo = !isVideoOff && localStream && localStream.getVideoTracks().length > 0;
+  const hasRemoteVideo = !isRemoteVideoOff && remoteStream && remoteStream.getVideoTracks().length > 0;
 
   return (
     <div className="floating-participants-container">
       <div className="floating-participants-header">
-        <span className="floating-title">Participantes</span>
+        <span className="floating-title">Câmeras / Participantes</span>
         <div className="floating-actions">
           <button
             type="button"
             className="btn-floating-action"
             onClick={() => setIsFloatingAvatarsMinimized(true)}
-            title="Minimizar para Pill"
+            title="Minimizar para Barra"
           >
             <Minus size={13} />
           </button>
@@ -109,11 +109,14 @@ export function FloatingParticipantAvatars() {
           {hasLocalVideo ? (
             <video
               ref={(el) => {
-                if (el && localStream) el.srcObject = localStream;
+                if (el && localStream && el.srcObject !== localStream) {
+                  el.srcObject = localStream;
+                  el.play().catch(() => {});
+                }
               }}
               autoPlay
               playsInline
-              muted
+              muted={true}
               className="mini-video-feed"
             />
           ) : (
@@ -127,7 +130,7 @@ export function FloatingParticipantAvatars() {
           )}
           <div className="mini-card-overlay">
             <span className="mini-name">Você</span>
-            {isMicMuted && <MicOff size={11} color="#f23f43" />}
+            {isMicMuted ? <MicOff size={11} color="#f23f43" /> : (isVideoOff && <VideoOff size={11} color="#949ba4" />)}
           </div>
         </div>
 
@@ -141,10 +144,14 @@ export function FloatingParticipantAvatars() {
           {hasRemoteVideo ? (
             <video
               ref={(el) => {
-                if (el && remoteStream) el.srcObject = remoteStream;
+                if (el && remoteStream && el.srcObject !== remoteStream) {
+                  el.srcObject = remoteStream;
+                  el.play().catch(() => {});
+                }
               }}
               autoPlay
               playsInline
+              muted={true}
               className="mini-video-feed"
             />
           ) : (
@@ -158,6 +165,7 @@ export function FloatingParticipantAvatars() {
           )}
           <div className="mini-card-overlay">
             <span className="mini-name">{otherProfile.name || 'Parceiro'}</span>
+            {isRemoteMicMuted ? <MicOff size={11} color="#f23f43" /> : (isRemoteVideoOff && <VideoOff size={11} color="#949ba4" />)}
           </div>
         </div>
       </div>
