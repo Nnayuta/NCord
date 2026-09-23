@@ -89,6 +89,15 @@ async function checkForUpdates() {
       };
     }
 
+    if (res.statusCode === 403) {
+      console.warn('[AutoUpdater] Limite de requisições temporário da API do GitHub atingido.');
+      return {
+        updateAvailable: false,
+        currentVersion,
+        error: 'Limite de requisições do GitHub atingido temporariamente. Tente novamente em alguns minutos.'
+      };
+    }
+
     if (res.statusCode !== 200) {
       throw new Error(`GitHub API retornou status ${res.statusCode}`);
     }
@@ -204,17 +213,21 @@ function downloadUpdate(downloadUrl, windowRef) {
       res.pipe(fileStream);
 
       fileStream.on('finish', () => {
-        fileStream.close();
-        downloadedFilePath = targetPath;
-        console.log(`[AutoUpdater] Download concluído com sucesso: ${targetPath}`);
+        fileStream.close((err) => {
+          if (err) {
+            console.warn('[AutoUpdater] Aviso ao fechar stream de arquivo:', err);
+          }
+          downloadedFilePath = targetPath;
+          console.log(`[AutoUpdater] Download concluído com sucesso: ${targetPath}`);
 
-        if (windowRef && !windowRef.isDestroyed()) {
-          windowRef.webContents.send('updater:download-complete', {
-            filePath: targetPath,
-            version: latestReleaseInfo?.latestVersion
-          });
-        }
-        resolve({ success: true, filePath: targetPath });
+          if (windowRef && !windowRef.isDestroyed()) {
+            windowRef.webContents.send('updater:download-complete', {
+              filePath: targetPath,
+              version: latestReleaseInfo?.latestVersion
+            });
+          }
+          resolve({ success: true, filePath: targetPath });
+        });
       });
 
       fileStream.on('error', (err) => {
@@ -243,59 +256,221 @@ function installUpdateAndRestart() {
     return { success: false, error: 'Arquivo de atualização não encontrado.' };
   }
 
-  const currentExe = process.execPath;
+  // No electron-builder com target "portable", o executável real do usuário (na Área de Trabalho ou Downloads)
+  // fica em process.env.PORTABLE_EXECUTABLE_FILE. Se não existir, usa process.execPath.
+  const targetExe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
   const currentPid = process.pid;
   const isPackaged = app.isPackaged;
 
-  console.log(`[AutoUpdater] Preparando instalação. Executável atual: ${currentExe} (PID: ${currentPid}, Packaged: ${isPackaged})`);
+  console.log(`[AutoUpdater] Preparando instalação.`);
+  console.log(`[AutoUpdater] Executável Alvo: ${targetExe}`);
+  console.log(`[AutoUpdater] Executável Baixado: ${downloadedFilePath}`);
+  console.log(`[AutoUpdater] PID: ${currentPid} | Packaged: ${isPackaged}`);
 
   if (!isPackaged) {
-    console.log('[AutoUpdater] Ambiente de desenvolvimento detectado. Abrindo o executável baixado ou pasta de download...');
+    console.log('[AutoUpdater] Ambiente de desenvolvimento detectado. Abrindo o executável baixado...');
     shell.showItemInFolder(downloadedFilePath);
     return { success: true, isDev: true };
   }
 
-  // No Windows executável portátil/instalado:
+  if (process.platform !== 'win32') {
+    try {
+      fs.chmodSync(downloadedFilePath, '755');
+      shell.showItemInFolder(downloadedFilePath);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  // Windows: Utiliza PowerShell com Splash Screen nativa (WPF) em segundo plano e retry seguro
   const tempDir = app.getPath('temp');
-  const batPath = path.join(tempDir, 'lovechat_updater.bat');
+  const ps1Path = path.join(tempDir, 'lovechat_updater.ps1');
+  const newVerText = latestReleaseInfo?.latestVersion ? `(v${latestReleaseInfo.latestVersion})` : '';
 
-  const batContent = `@echo off
-chcp 65001 >nul
-echo Aguardando o encerramento do LoveChat (PID: ${currentPid})...
-timeout /t 1 /nobreak >nul
-
-:wait_loop
-tasklist /fi "PID eq ${currentPid}" | findstr "${currentPid}" >nul
-if %ERRORLEVEL% == 0 (
-  timeout /t 1 /nobreak >nul
-  goto wait_loop
+  const ps1Content = `param(
+  [Parameter(Mandatory=$true)][string]$TargetExe,
+  [Parameter(Mandatory=$true)][string]$NewExe,
+  [Parameter(Mandatory=$true)][int]$TargetPid,
+  [Parameter(Mandatory=$false)][string]$NewVersion = ""
 )
 
-echo Substituindo executavel antigo pelo novo...
-copy /y "${downloadedFilePath}" "${currentExe}" >nul
+$ErrorActionPreference = 'Continue'
+$logFile = Join-Path $env:TEMP "lovechat_updater.log"
 
-echo Reiniciando LoveChat atualizado...
-start "" "${currentExe}"
+function Write-Log($msg) {
+  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  "[$timestamp] $msg" | Out-File -FilePath $logFile -Append -Encoding utf8
+}
 
-del "${downloadedFilePath}" >nul 2>&1
-(goto) 2>nul & del "%~f0"
+Write-Log "=================================================="
+Write-Log "LoveChat Auto-Updater iniciado."
+Write-Log "Alvo (TargetExe): $TargetExe"
+Write-Log "Novo Executavel (NewExe): $NewExe"
+Write-Log "PID a encerrar: $TargetPid"
+Write-Log "Versao: $NewVersion"
+
+# Exibicao da Splash Screen WPF Nativa
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase -ErrorAction SilentlyContinue
+
+$subTitleText = if ($NewVersion -ne "") { "Aplicando atualizacao $NewVersion e reiniciando..." } else { "Substituindo executavel e reiniciando..." }
+
+$xaml = @"
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LoveChat Update" Height="175" Width="390"
+        WindowStartupLocation="CenterScreen" WindowStyle="None"
+        AllowsTransparency="True" Background="Transparent" Topmost="True" ShowInTaskbar="False">
+    <Border CornerRadius="16" Background="#140c1a" BorderBrush="#ec4899" BorderThickness="1.5" Padding="22">
+        <Border.Effect>
+            <DropShadowEffect Color="#ec4899" BlurRadius="26" ShadowDepth="0" Opacity="0.45"/>
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,8">
+                <TextBlock Text="🚀" FontSize="20" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                <TextBlock Text="Atualizando o LoveChat" FontSize="17" FontWeight="Bold" Foreground="#fdf2f8" VerticalAlignment="Center"/>
+            </StackPanel>
+            
+            <TextBlock Grid.Row="1" Text="$subTitleText" FontSize="12.5" Foreground="#cbd5e1" HorizontalAlignment="Center" Margin="0,0,0,14"/>
+            
+            <ProgressBar Grid.Row="2" Height="6" IsIndeterminate="True" Foreground="#ec4899" Background="#281636" BorderThickness="0" Margin="0,0,0,8"/>
+            
+            <TextBlock Grid.Row="3" Text="Por favor, aguarde alguns instantes ✨" FontSize="11" Foreground="#94a3b8" HorizontalAlignment="Center"/>
+        </Grid>
+    </Border>
+</Window>
+"@
+
+$window = $null
+try {
+  $reader = [System.Xml.XmlReader]::Create([System.IO.StringReader]::new($xaml))
+  $window = [System.Windows.Markup.XamlReader]::Load($reader)
+  $window.Show()
+} catch {
+  Write-Log "Aviso ao carregar interface Splash: $($_.Exception.Message)"
+}
+
+function Refresh-Splash {
+  if ($window) {
+    try {
+      $window.Dispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
+    } catch {}
+  }
+}
+
+# 1. Aguardar o encerramento do processo pai do LoveChat
+if ($TargetPid -gt 0) {
+  Write-Log "Aguardando encerramento do processo PID $TargetPid..."
+  for ($i = 0; $i -lt 40; $i++) {
+    Refresh-Splash
+    $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+    if (-not $proc) {
+      Write-Log "Processo PID $TargetPid encerrado com sucesso."
+      break
+    }
+    Start-Sleep -Milliseconds 200
+  }
+}
+
+Refresh-Splash
+Start-Sleep -Milliseconds 500
+Refresh-Splash
+
+# 2. Substituir o executavel antigo pelo novo com loop de tentativas (retry)
+$replaced = $false
+for ($i = 1; $i -le 30; $i++) {
+  Refresh-Splash
+  try {
+    Write-Log "Tentativa $i de 30 para substituir '$TargetExe' com '$NewExe'..."
+    Copy-Item -Path $NewExe -Destination $TargetExe -Force -ErrorAction Stop
+    $replaced = $true
+    Write-Log "Executavel unico substituido com sucesso!"
+    break
+  } catch {
+    Write-Log "Aviso na tentativa $i : $($_.Exception.Message)"
+    Start-Sleep -Milliseconds 400
+  }
+}
+
+# 3. Reiniciar o aplicativo atualizado
+if ($replaced) {
+  try {
+    Write-Log "Iniciando nova versao atualizada: $TargetExe"
+    $targetDir = Split-Path -Parent $TargetExe
+    Start-Process -FilePath $TargetExe -WorkingDirectory $targetDir
+    Write-Log "Aplicativo reiniciado com sucesso."
+  } catch {
+    Write-Log "Erro ao reiniciar executavel: $($_.Exception.Message)"
+  }
+
+  # Pausa visual suave antes de fechar a Splash
+  Refresh-Splash
+  Start-Sleep -Milliseconds 800
+  if ($window) {
+    try { $window.Close() } catch {}
+  }
+
+  # Limpar arquivo temporario baixado
+  try {
+    if (Test-Path $NewExe) {
+      Remove-Item -Path $NewExe -Force -ErrorAction SilentlyContinue
+    }
+  } catch {}
+} else {
+  if ($window) {
+    try { $window.Close() } catch {}
+  }
+  Write-Log "ERRO CRITICO: Nao foi possivel substituir o executavel apos 30 tentativas."
+  try {
+    Add-Type -AssemblyName PresentationFramework -ErrorAction SilentlyContinue
+    $msg = "Nao foi possivel atualizar o LoveChat automaticamente devido a bloqueio de arquivo no Windows.\`n\`nO novo executavel foi salvo em sua pasta temporaria."
+    [System.Windows.MessageBox]::Show($msg, "LoveChat - Atualizacao", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning) | Out-Null
+    Start-Process explorer.exe -ArgumentList ("/select," + '"' + $NewExe + '"')
+  } catch {}
+}
+
+# 4. Auto-remocao do script de atualizacao
+try {
+  $currentScript = $MyInvocation.MyCommand.Path
+  if ($currentScript -and (Test-Path $currentScript)) {
+    Remove-Item -Path $currentScript -Force -ErrorAction SilentlyContinue
+  }
+} catch {}
 `;
 
   try {
-    fs.writeFileSync(batPath, batContent, 'utf-8');
+    fs.writeFileSync(ps1Path, ps1Content, 'utf-8');
 
-    // Executa o script BAT em processo completamente desanexado
-    const child = spawn('cmd.exe', ['/c', batPath], {
+    // Executa PowerShell em modo STA com janela de console oculta
+    const child = spawn('powershell.exe', [
+      '-STA',
+      '-NoProfile',
+      '-NonInteractive',
+      '-WindowStyle', 'Hidden',
+      '-ExecutionPolicy', 'Bypass',
+      '-File', ps1Path,
+      '-TargetExe', targetExe,
+      '-NewExe', downloadedFilePath,
+      '-TargetPid', currentPid.toString(),
+      '-NewVersion', newVerText
+    ], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true
     });
     child.unref();
 
-    console.log('[AutoUpdater] Script de atualização acionado com sucesso. Encerrando app para substituição...');
+    console.log('[AutoUpdater] Script de atualização PowerShell disparado com sucesso com Splash Screen. Encerrando app...');
     setTimeout(() => {
       app.exit(0);
-    }, 300);
+    }, 400);
 
     return { success: true };
   } catch (err) {

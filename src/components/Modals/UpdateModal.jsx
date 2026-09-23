@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Sparkles,
   Download,
@@ -26,11 +26,18 @@ export function UpdateModal() {
     closeUpdateModal
   } = useAutoUpdate();
 
+  const [isRestarting, setIsRestarting] = useState(false);
+
   if (!isModalOpen || !updateInfo) return null;
 
   const isDownloading = status === 'downloading';
   const isDownloaded = status === 'downloaded';
   const isError = status === 'error';
+
+  const handleRestart = async () => {
+    setIsRestarting(true);
+    await installAndRestart();
+  };
 
   return (
     <div className="modal-overlay-backdrop update-modal-overlay" onClick={closeUpdateModal}>
@@ -183,11 +190,21 @@ export function UpdateModal() {
             {isDownloaded && (
               <button
                 type="button"
-                className="btn-update-primary success-btn"
-                onClick={installAndRestart}
+                className={`btn-update-primary success-btn ${isRestarting ? 'disabled' : ''}`}
+                onClick={handleRestart}
+                disabled={isRestarting}
               >
-                <Rocket size={15} />
-                <span>Reiniciar e Aplicar ✨</span>
+                {isRestarting ? (
+                  <>
+                    <RefreshCw size={15} className="spin-fast" />
+                    <span>Reiniciando... 🚀</span>
+                  </>
+                ) : (
+                  <>
+                    <Rocket size={15} />
+                    <span>Reiniciar e Aplicar ✨</span>
+                  </>
+                )}
               </button>
             )}
           </div>
