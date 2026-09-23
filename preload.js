@@ -43,9 +43,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.removeAllListeners('mixer-process-audio-chunk');
   },
   
+  // Álbum de Fotos Compartilhado
+  selectAlbumFolder: () => ipcRenderer.invoke('select-album-folder'),
+  getAlbumFolder: () => ipcRenderer.invoke('get-album-folder'),
+  clearAlbumFolder: () => ipcRenderer.invoke('clear-album-folder'),
+  
   // Controle de conexão e hospedagem de servidor
+  getMyIp: () => ipcRenderer.invoke('get-my-ip'),
   connectToServer: (targetIp) => ipcRenderer.invoke('connect-to-server', targetIp),
   hostLocalServer: () => ipcRenderer.invoke('host-local-server'),
+  stopLocalServer: () => ipcRenderer.invoke('stop-local-server'),
   getServerStatus: () => ipcRenderer.invoke('get-server-status'),
   getSavedSettings: () => ipcRenderer.invoke('get-saved-settings'),
   saveUserProfile: (profileId) => ipcRenderer.invoke('save-user-profile', profileId),

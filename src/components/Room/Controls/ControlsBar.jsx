@@ -11,23 +11,29 @@ import {
   PhoneOff
 } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
+import { isElectron } from '../../../services/electronBridge';
 
-export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker }) {
+export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum }) {
   const {
     isMicMuted,
     isVideoOff,
-    isScreenSharing,
+    isLocalScreenSharing,
     toggleMic,
     toggleVideo,
+    startScreenShare,
     stopScreenShare,
     leaveRoom
   } = useWebRTC();
 
   const handleScreenClick = () => {
-    if (isScreenSharing) {
+    if (isLocalScreenSharing) {
       stopScreenShare();
     } else {
-      if (onOpenScreenPicker) onOpenScreenPicker();
+      if (isElectron) {
+        if (onOpenScreenPicker) onOpenScreenPicker();
+      } else {
+        startScreenShare();
+      }
     }
   };
 
@@ -64,11 +70,21 @@ export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker }) 
       {/* Compartilhar Tela */}
       <button
         type="button"
-        className={`btn-control ${isScreenSharing ? 'active' : ''}`}
+        className={`btn-control ${isLocalScreenSharing ? 'active' : ''}`}
         onClick={handleScreenClick}
-        title="Compartilhar Tela"
+        title={isLocalScreenSharing ? 'Parar Compartilhamento de Tela' : 'Compartilhar Tela'}
       >
         <Monitor size={20} />
+      </button>
+
+      {/* Álbum de Fotos */}
+      <button
+        type="button"
+        className="btn-control"
+        onClick={onOpenAlbum}
+        title="Álbum de Fotos do Casal 📸"
+      >
+        <Sparkles size={20} color="#f43f8e" />
       </button>
 
       {/* Mixer de Áudio */}

@@ -4,7 +4,7 @@ import { useWebRTC } from '../../../context/WebRTCContext';
 import { VideoGrid } from './VideoGrid';
 import { ControlsBar } from '../Controls/ControlsBar';
 
-export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker }) {
+export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum }) {
   const { isTheaterMode, setIsTheaterMode } = useWebRTC();
 
   return (
@@ -28,6 +28,7 @@ export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker }) {
         onOpenMixer={onOpenMixer}
         onOpenQuality={onOpenQuality}
         onOpenScreenPicker={onOpenScreenPicker}
+        onOpenAlbum={onOpenAlbum}
       />
     </main>
   );

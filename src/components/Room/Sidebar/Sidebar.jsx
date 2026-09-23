@@ -1,13 +1,14 @@
 import React from 'react';
-import { PanelLeftClose } from 'lucide-react';
+import { PanelLeftClose, Images } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 import { VoiceChannelItem } from './VoiceChannelItem';
 import { StreamSidebarCard } from './StreamSidebarCard';
 import { VoiceMembersList } from './VoiceMembersList';
 import { CoupleBoard } from './CoupleBoard';
 import { ConnectionStatusBadge } from './ConnectionStatusBadge';
+import { UserFooterBar } from './UserFooterBar';
 
-export function Sidebar() {
+export function Sidebar({ onOpenAlbum }) {
   const { isTheaterMode, setIsTheaterMode } = useWebRTC();
 
   return (
@@ -26,16 +27,35 @@ export function Sidebar() {
 
       <div className="sidebar-content">
         <div className="channel-section">
-          <div className="section-title">Canais de Voz</div>
+          <div className="section-title">Canais & Recursos</div>
           <VoiceChannelItem />
           <StreamSidebarCard />
           <VoiceMembersList />
+
+          {/* Botão de Acesso Rápido ao Álbum */}
+          <button
+            type="button"
+            className="sidebar-album-btn"
+            onClick={onOpenAlbum}
+            title="Abrir Álbum de Fotos do Casal"
+          >
+            <div className="sidebar-album-icon">
+              <Images size={16} />
+            </div>
+            <div className="sidebar-album-text">
+              <span className="sidebar-album-title">Álbum de Fotos</span>
+              <span className="sidebar-album-hint">Fotos & Avatares 📸</span>
+            </div>
+          </button>
         </div>
 
         <CoupleBoard />
       </div>
 
-      <ConnectionStatusBadge />
+      <div className="sidebar-footer-container">
+        <ConnectionStatusBadge />
+        <UserFooterBar />
+      </div>
     </aside>
   );
 }

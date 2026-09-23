@@ -144,9 +144,16 @@ export function ServerProvider({ children }) {
     }
   }, [showToast]);
 
-  const resetServerConnection = useCallback(() => {
+  const resetServerConnection = useCallback(async () => {
     setIsServerConfigured(false);
     apiService.setBaseUrl('');
+    if (isElectron) {
+      try {
+        await electronBridge.stopLocalServer();
+      } catch (e) {
+        console.warn('[ServerContext] Erro ao parar servidor local:', e);
+      }
+    }
   }, []);
 
   const requestFirewall = useCallback(async () => {

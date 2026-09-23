@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session, desktopCapturer, ipcMain } = require('electron');
+const { app, BrowserWindow, session, desktopCapturer, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -141,6 +141,7 @@ try {
 // ==========================================
 app.commandLine.appendSwitch('ignore-certificate-errors');
 app.commandLine.appendSwitch('allow-insecure-localhost', 'true');
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
 
 let mainWindow = null;
 let pendingDisplayMediaCallback = null;
@@ -259,6 +260,43 @@ async function waitForLocalServer(timeoutMs = 12000) {
   return false;
 }
 
+function getHostNetworkIps() {
+  const os = require('os');
+  const ifaces = os.networkInterfaces();
+  let zerotierIp = null;
+  let lanIp = null;
+  const allIps = [];
+
+  for (const [name, list] of Object.entries(ifaces)) {
+    if (!list) continue;
+    for (const iface of list) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        const lowerName = name.toLowerCase();
+        allIps.push({ name, address: iface.address });
+        if (
+          lowerName.includes('zerotier') || 
+          lowerName.includes('zt') || 
+          iface.address.startsWith('10.147.') || 
+          iface.address.startsWith('10.244.') ||
+          iface.address.startsWith('192.168.192.') ||
+          iface.address.startsWith('192.168.195.')
+        ) {
+          zerotierIp = iface.address;
+        } else if (!lanIp && !iface.address.startsWith('127.')) {
+          lanIp = iface.address;
+        }
+      }
+    }
+  }
+
+  return {
+    ip: zerotierIp || lanIp || '127.0.0.1',
+    zerotierIp: zerotierIp || lanIp || '127.0.0.1',
+    lanIp: lanIp || '127.0.0.1',
+    allIps
+  };
+}
+
 const server = require('./server');
 
 async function startLocalServer() {
@@ -269,7 +307,7 @@ async function startLocalServer() {
       return true;
     }
 
-    console.log('[Electron] Iniciando servidor Express/PeerJS embutido no processo...');
+    console.log('[Electron] 🚀 Iniciando servidor Express/PeerJS embutido no processo na porta 3000...');
     await server.startServer();
     console.log('[Electron] Servidor local inicializado com sucesso!');
     return true;
@@ -291,9 +329,6 @@ function stopLocalServer() {
 // 2. CRIAÇÃO DA JANELA PRINCIPAL
 // ==========================================
 async function createWindow() {
-  console.log('[Electron] 🚀 Iniciando servidor local do LoveChat na porta 3000...');
-  await startLocalServer();
-
   const iconPath = path.join(__dirname, 'public', 'icon-512.png');
 
   mainWindow = new BrowserWindow({
@@ -757,20 +792,34 @@ ipcMain.handle('connect-to-server', async (event, targetIp) => {
     };
   }
 
+  // Se o servidor local estiver ativo, desliga para operar como cliente puro
+  stopLocalServer();
+
   // Grava o IP no arquivo de configurações para fácil preenchimento
   writeSettings({ targetIp: cleanIp });
 
-  // Mantém o servidor local sempre ligado para que qualquer um possa conectar
   console.log(`[Electron] IP do parceiro validado com sucesso (${cleanIp}).`);
   return { success: true, targetIp: cleanIp };
 });
 
-// Alternar para hospedar no próprio computador
+// Obter IPs locais e do ZeroTier sem precisar do servidor HTTP ativo
+ipcMain.handle('get-my-ip', async () => {
+  return getHostNetworkIps();
+});
+
+// Alternar para hospedar no próprio computador (inicia o servidor local sob demanda)
 ipcMain.handle('host-local-server', async () => {
   writeSettings({ targetIp: null });
-  console.log('[Electron] Modo Anfitrião restaurado. Verificando servidor local...');
+  console.log('[Electron] Modo Anfitrião selecionado. Iniciando servidor local na porta 3000...');
   const ok = await startLocalServer();
   return { success: ok };
+});
+
+// Parar servidor local explicitamente (ao clicar em Trocar Servidor)
+ipcMain.handle('stop-local-server', async () => {
+  console.log('[Electron] Encerrando servidor local a pedido do usuário (Trocar Servidor)...');
+  stopLocalServer();
+  return { success: true };
 });
 
 // Status em tempo real do servidor local
@@ -794,6 +843,49 @@ ipcMain.handle('request-firewall', async () => {
 
 ipcMain.handle('check-firewall', async () => {
   return (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
+});
+
+// ==========================================
+// ÁLBUM DE FOTOS COMPARTILHADO (HOST FOLDER)
+// ==========================================
+ipcMain.handle('select-album-folder', async () => {
+  if (!mainWindow) return { canceled: true };
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Selecione a Pasta de Fotos para Compartilhar no Álbum',
+      properties: ['openDirectory', 'dontAddToRecent']
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { canceled: true };
+    }
+
+    const folderPath = result.filePaths[0];
+    writeSettings({ sharedAlbumFolder: folderPath });
+
+    // Notificar o servidor local sobre a pasta escolhida
+    if (server && typeof server.setSharedAlbumFolder === 'function') {
+      server.setSharedAlbumFolder(folderPath);
+    }
+
+    return { canceled: false, folderPath };
+  } catch (err) {
+    console.error('[Electron] Erro ao selecionar pasta do álbum:', err);
+    return { canceled: true, error: err.message };
+  }
+});
+
+ipcMain.handle('get-album-folder', () => {
+  const settings = readSettings();
+  return { folderPath: settings.sharedAlbumFolder || null };
+});
+
+ipcMain.handle('clear-album-folder', () => {
+  writeSettings({ sharedAlbumFolder: null });
+  if (server && typeof server.setSharedAlbumFolder === 'function') {
+    server.setSharedAlbumFolder(null);
+  }
+  return { success: true };
 });
 
 // Controles de janela

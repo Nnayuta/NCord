@@ -162,7 +162,11 @@ function writeDB(data) {
 
 // Endpoints da API para o casal
 app.get('/api/db', (req, res) => {
-  res.json(readDB());
+  const dbData = readDB();
+  res.json({
+    ...dbData,
+    occupiedProfiles: getOccupiedProfiles()
+  });
 });
 
 // Helper para detectar o IP da interface do ZeroTier e da rede local
@@ -403,11 +407,155 @@ app.post('/api/db', (req, res) => {
 });
 
 // ==========================================
+// ÁLBUM DE FOTOS COMPARTILHADO DO CASAL
+// ==========================================
+let sharedAlbumFolder = null;
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.svg']);
+
+try {
+  const initDb = readDB();
+  if (initDb && initDb.sharedAlbumFolder && fs.existsSync(initDb.sharedAlbumFolder)) {
+    sharedAlbumFolder = initDb.sharedAlbumFolder;
+  }
+} catch (e) {}
+
+function setSharedAlbumFolder(folderPath) {
+  if (folderPath && fs.existsSync(folderPath)) {
+    sharedAlbumFolder = folderPath;
+    try {
+      const db = readDB();
+      db.sharedAlbumFolder = folderPath;
+      writeDB(db);
+    } catch (e) {}
+    console.log(`[Album] Pasta do álbum configurada para: ${folderPath}`);
+  } else {
+    sharedAlbumFolder = null;
+    try {
+      const db = readDB();
+      delete db.sharedAlbumFolder;
+      writeDB(db);
+    } catch (e) {}
+    console.log('[Album] Compartilhamento de pasta do álbum desativado.');
+  }
+}
+
+function getSharedAlbumPhotos() {
+  if (!sharedAlbumFolder || !fs.existsSync(sharedAlbumFolder)) {
+    return [];
+  }
+  try {
+    const files = fs.readdirSync(sharedAlbumFolder);
+    const photos = [];
+    for (const f of files) {
+      const ext = path.extname(f).toLowerCase();
+      if (IMAGE_EXTENSIONS.has(ext)) {
+        try {
+          const fullPath = path.join(sharedAlbumFolder, f);
+          const stat = fs.statSync(fullPath);
+          if (stat.isFile()) {
+            photos.push({
+              name: f,
+              size: stat.size,
+              mtime: stat.mtimeMs,
+              url: `/api/album/photo/${encodeURIComponent(f)}`
+            });
+          }
+        } catch (e) {}
+      }
+    }
+    // Ordenar pelas fotos mais recentes primeiro
+    photos.sort((a, b) => b.mtime - a.mtime);
+    return photos;
+  } catch (err) {
+    console.warn('[Album] Erro ao ler pasta compartilhada:', err.message);
+    return [];
+  }
+}
+
+// Endpoint de status do álbum
+app.get('/api/album/status', (req, res) => {
+  const isConfigured = !!(sharedAlbumFolder && fs.existsSync(sharedAlbumFolder));
+  const photos = isConfigured ? getSharedAlbumPhotos() : [];
+  res.json({
+    isConfigured,
+    folderName: isConfigured ? path.basename(sharedAlbumFolder) : null,
+    count: photos.length
+  });
+});
+
+// Endpoint com a lista de fotos
+app.get('/api/album/photos', (req, res) => {
+  const photos = getSharedAlbumPhotos();
+  res.json({
+    isConfigured: !!(sharedAlbumFolder && fs.existsSync(sharedAlbumFolder)),
+    folderName: sharedAlbumFolder ? path.basename(sharedAlbumFolder) : null,
+    count: photos.length,
+    photos
+  });
+});
+
+// Endpoint para servir o arquivo da foto
+app.get('/api/album/photo/:filename', (req, res) => {
+  if (!sharedAlbumFolder || !fs.existsSync(sharedAlbumFolder)) {
+    return res.status(404).send('Nenhuma pasta compartilhada.');
+  }
+
+  const rawFilename = req.params.filename;
+  const safeFilename = path.basename(rawFilename);
+  const targetPath = path.join(sharedAlbumFolder, safeFilename);
+
+  if (!fs.existsSync(targetPath)) {
+    return res.status(404).send('Foto não encontrada.');
+  }
+
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.sendFile(targetPath);
+});
+
+// Endpoint para definir pasta compartilhada
+app.post('/api/album/set-folder', (req, res) => {
+  const { folderPath } = req.body || {};
+  if (folderPath && fs.existsSync(folderPath)) {
+    setSharedAlbumFolder(folderPath);
+    const photos = getSharedAlbumPhotos();
+    res.json({
+      success: true,
+      folderName: path.basename(folderPath),
+      count: photos.length,
+      photos
+    });
+  } else {
+    res.status(400).json({ success: false, error: 'Pasta inválida ou não encontrada.' });
+  }
+});
+
+// Endpoint para limpar pasta compartilhada
+app.post('/api/album/clear-folder', (req, res) => {
+  setSharedAlbumFolder(null);
+  res.json({ success: true, count: 0, photos: [] });
+});
+
+// ==========================================
 // MONITORAMENTO DE PEERS E SALAS ATIVAS
 // ==========================================
 const activePeers = new Map(); // peerId -> { id, connectedAt, lastSeen }
+const activeRoomProfiles = new Map(); // profileId -> { peerId, profileId, joinedAt, lastSeen }
 
-// Endpoints da sala para coordenação de liderança e troca de dono
+function getOccupiedProfiles() {
+  const now = Date.now();
+  const occupied = [];
+  for (const [profId, data] of activeRoomProfiles.entries()) {
+    // Se passou mais de 20s sem heartbeat e não tem peer conectado, liberar
+    if (now - data.lastSeen > 20000 && (!data.peerId || !activePeers.has(data.peerId))) {
+      activeRoomProfiles.delete(profId);
+      continue;
+    }
+    occupied.push(profId);
+  }
+  return occupied;
+}
+
+// Endpoints da sala para coordenação de liderança e perfis ocupados
 app.get('/api/room/:room/status', (req, res) => {
   const rawRoom = (req.params.room || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
   const prefix = rawRoom.startsWith('lovechat-') ? rawRoom : `lovechat-${rawRoom}`;
@@ -431,17 +579,66 @@ app.get('/api/room/:room/status', (req, res) => {
     hostOnline: isHostOnline,
     hostId: isHostOnline ? hostId : null,
     peersCount: peersInRoom.length,
-    peers: peersInRoom
+    peers: peersInRoom,
+    occupiedProfiles: getOccupiedProfiles()
   });
 });
 
+// Ocupar perfil ao entrar na chamada
+app.post('/api/room/occupy', (req, res) => {
+  const { profileId, peerId } = req.body || {};
+  if (profileId) {
+    activeRoomProfiles.set(profileId, {
+      profileId,
+      peerId: peerId || null,
+      joinedAt: Date.now(),
+      lastSeen: Date.now()
+    });
+    console.log(`[Room] Perfil "${profileId}" marcado como ocupado (Peer: ${peerId || 'desconhecido'})`);
+  }
+  res.json({ success: true, occupiedProfiles: getOccupiedProfiles() });
+});
+
+// Heartbeat para manter perfil ocupado ativo
+app.post('/api/room/heartbeat', (req, res) => {
+  const { profileId, peerId } = req.body || {};
+  if (profileId) {
+    if (activeRoomProfiles.has(profileId)) {
+      const curr = activeRoomProfiles.get(profileId);
+      curr.lastSeen = Date.now();
+      if (peerId) curr.peerId = peerId;
+    } else {
+      activeRoomProfiles.set(profileId, {
+        profileId,
+        peerId: peerId || null,
+        joinedAt: Date.now(),
+        lastSeen: Date.now()
+      });
+    }
+  }
+  res.json({ success: true, occupiedProfiles: getOccupiedProfiles() });
+});
+
+// Liberar perfil ao sair da sala
 app.post('/api/room/leave', (req, res) => {
-  const { peerId } = req.body || {};
+  const { peerId, profileId } = req.body || {};
   if (peerId && activePeers.has(peerId)) {
     activePeers.delete(peerId);
     console.log(`[Room] Peer liberado explicitamente via /api/room/leave: ${peerId}`);
   }
-  res.json({ success: true });
+  if (profileId && activeRoomProfiles.has(profileId)) {
+    activeRoomProfiles.delete(profileId);
+    console.log(`[Room] Perfil liberado explicitamente via /api/room/leave: ${profileId}`);
+  }
+  if (peerId) {
+    for (const [pId, data] of activeRoomProfiles.entries()) {
+      if (data.peerId === peerId) {
+        activeRoomProfiles.delete(pId);
+        console.log(`[Room] Perfil ${pId} liberado por peerId ${peerId}`);
+      }
+    }
+  }
+  res.json({ success: true, occupiedProfiles: getOccupiedProfiles() });
 });
 
 let currentHttpServer = null;
@@ -474,6 +671,12 @@ async function startServer() {
   peerServerHttp.on('disconnect', (client) => {
     const id = client.getId();
     activePeers.delete(id);
+    for (const [pId, data] of activeRoomProfiles.entries()) {
+      if (data.peerId === id) {
+        activeRoomProfiles.delete(pId);
+        console.log(`[PeerServer] Perfil "${pId}" liberado automaticamente na desconexão de ${id}`);
+      }
+    }
     console.log(`[PeerServer] Cliente desconectado: ${id} (Total ativos: ${activePeers.size})`);
   });
 
@@ -506,4 +709,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { startServer, stopServer, app };
+module.exports = { startServer, stopServer, setSharedAlbumFolder, app };

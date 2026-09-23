@@ -1,32 +1,56 @@
 import React, { useState, useRef } from 'react';
-import { RotateCcw, UserCheck, User, Camera, Edit2, Check, Sparkles, ArrowRight } from 'lucide-react';
+import { RotateCcw, UserCheck, User, Camera, Edit2, Check, Sparkles, ArrowRight, Lock } from 'lucide-react';
 import { useServer } from '../../context/ServerContext';
 import { useProfiles } from '../../context/ProfileContext';
 import { useWebRTC } from '../../context/WebRTCContext';
-import { EditNameModal } from '../Common/EditNameModal';
+import { useToast } from '../../hooks/useToast';
+import { EditProfileModal } from '../Common/EditProfileModal';
 
 export function ProfileSelectorPanel() {
+  const { showToast } = useToast();
   const { connectedServerDesc, resetServerConnection } = useServer();
   const {
     activeProfileId,
+    occupiedProfiles,
     profiles,
     selectActiveProfile,
-    updateProfileName,
     updateProfileAvatar
   } = useProfiles();
   const { joinRoom } = useWebRTC();
 
-  const [editingUserId, setEditingUserId] = useState(null);
+  const [editingProfileId, setEditingProfileId] = useState(null);
   const fileInputRefUser1 = useRef(null);
   const fileInputRefUser2 = useRef(null);
 
+  const isUser1Occupied = Array.isArray(occupiedProfiles) && occupiedProfiles.includes('user1');
+  const isUser2Occupied = Array.isArray(occupiedProfiles) && occupiedProfiles.includes('user2');
+
+  const handleSelectUser = (userId) => {
+    if (userId === 'user1' && isUser1Occupied) {
+      showToast(`${profiles.user1.name || 'Usuário 1'} já está conectado(a) na chamada!`, 'warning');
+      return;
+    }
+    if (userId === 'user2' && isUser2Occupied) {
+      showToast(`${profiles.user2.name || 'Usuário 2'} já está conectado(a) na chamada!`, 'warning');
+      return;
+    }
+    selectActiveProfile(userId);
+  };
+
   const handleJoin = (e) => {
     e.preventDefault();
+    if (Array.isArray(occupiedProfiles) && occupiedProfiles.includes(activeProfileId)) {
+      showToast('O perfil selecionado já está conectado na chamada. Escolha outro perfil!', 'error');
+      return;
+    }
     joinRoom('lovechat');
   };
 
   const handleAvatarClick = (e, userId) => {
     e.stopPropagation();
+    if (userId === 'user1' && isUser1Occupied) return;
+    if (userId === 'user2' && isUser2Occupied) return;
+
     if (userId === 'user1' && fileInputRefUser1.current) {
       fileInputRefUser1.current.click();
     } else if (userId === 'user2' && fileInputRefUser2.current) {
@@ -41,9 +65,11 @@ export function ProfileSelectorPanel() {
     }
   };
 
-  const handleEditName = (e, userId) => {
+  const handleEditProfile = (e, userId) => {
     e.stopPropagation();
-    setEditingUserId(userId);
+    if (userId === 'user1' && isUser1Occupied) return;
+    if (userId === 'user2' && isUser2Occupied) return;
+    setEditingProfileId(userId);
   };
 
   return (
@@ -72,47 +98,60 @@ export function ProfileSelectorPanel() {
             <UserCheck size={18} color="#f43f8e" />
             <span>Quem é você neste PC?</span>
           </div>
-          <span className="identity-card-hint">Clique para escolher ou trocar foto</span>
+          <span className="identity-card-hint">Clique para escolher ou personalizar</span>
         </div>
 
         <div className="identity-profile-selector">
           {/* Perfil 1 (Roxo) */}
           <div
-            className={`profile-choice-btn ${activeProfileId === 'user1' ? 'active' : ''}`}
-            onClick={() => selectActiveProfile('user1')}
+            className={`profile-choice-btn ${activeProfileId === 'user1' && !isUser1Occupied ? 'active' : ''} ${isUser1Occupied ? 'occupied-profile' : ''}`}
+            onClick={() => handleSelectUser('user1')}
           >
             <div
               className="profile-thumb-wrapper"
               onClick={(e) => handleAvatarClick(e, 'user1')}
-              title="Clique para trocar a foto de perfil"
+              title={isUser1Occupied ? 'Perfil já conectado na chamada' : 'Clique para trocar a foto de perfil'}
             >
               {profiles.user1.avatar ? (
                 <img src={profiles.user1.avatar} className="profile-choice-avatar" alt="Perfil 1" />
               ) : (
                 <div className="profile-choice-icon"><User size={22} /></div>
               )}
-              <span className="profile-badge-dot purple"></span>
-              <div className="profile-avatar-overlay">
-                <Camera size={16} />
-              </div>
+              <span className={`profile-badge-dot ${isUser1Occupied ? 'occupied' : 'purple'}`}></span>
+              {!isUser1Occupied && (
+                <div className="profile-avatar-overlay">
+                  <Camera size={16} />
+                </div>
+              )}
             </div>
             <div className="profile-choice-info">
               <div className="profile-name-row">
                 <span className="profile-choice-name">{profiles.user1.name || 'Usuário 1'}</span>
-                <button
-                  type="button"
-                  className="btn-login-edit-name"
-                  onClick={(e) => handleEditName(e, 'user1')}
-                  title="Editar nome"
-                >
-                  <Edit2 size={14} />
-                </button>
+                {!isUser1Occupied ? (
+                  <button
+                    type="button"
+                    className="btn-login-edit-name"
+                    onClick={(e) => handleEditProfile(e, 'user1')}
+                    title="Personalizar foto e apelido"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                ) : (
+                  <span className="profile-occupied-badge">
+                    <Lock size={12} />
+                    <span>Conectado</span>
+                  </span>
+                )}
               </div>
               <span className="profile-choice-desc">
-                {activeProfileId === 'user1' ? 'Selecionado ✓' : 'Clique para usar'}
+                {isUser1Occupied
+                  ? '🔒 Em uso na chamada'
+                  : activeProfileId === 'user1'
+                  ? 'Selecionado ✓'
+                  : 'Clique para usar'}
               </span>
             </div>
-            {activeProfileId === 'user1' && <Check size={18} className="profile-check-icon" />}
+            {activeProfileId === 'user1' && !isUser1Occupied && <Check size={18} className="profile-check-icon" />}
             <input
               type="file"
               ref={fileInputRefUser1}
@@ -124,41 +163,54 @@ export function ProfileSelectorPanel() {
 
           {/* Perfil 2 (Rosa) */}
           <div
-            className={`profile-choice-btn ${activeProfileId === 'user2' ? 'active' : ''}`}
-            onClick={() => selectActiveProfile('user2')}
+            className={`profile-choice-btn ${activeProfileId === 'user2' && !isUser2Occupied ? 'active' : ''} ${isUser2Occupied ? 'occupied-profile' : ''}`}
+            onClick={() => handleSelectUser('user2')}
           >
             <div
               className="profile-thumb-wrapper"
               onClick={(e) => handleAvatarClick(e, 'user2')}
-              title="Clique para trocar a foto de perfil"
+              title={isUser2Occupied ? 'Perfil já conectado na chamada' : 'Clique para trocar a foto de perfil'}
             >
               {profiles.user2.avatar ? (
                 <img src={profiles.user2.avatar} className="profile-choice-avatar" alt="Perfil 2" />
               ) : (
                 <div className="profile-choice-icon"><User size={22} /></div>
               )}
-              <span className="profile-badge-dot pink"></span>
-              <div className="profile-avatar-overlay">
-                <Camera size={16} />
-              </div>
+              <span className={`profile-badge-dot ${isUser2Occupied ? 'occupied' : 'pink'}`}></span>
+              {!isUser2Occupied && (
+                <div className="profile-avatar-overlay">
+                  <Camera size={16} />
+                </div>
+              )}
             </div>
             <div className="profile-choice-info">
               <div className="profile-name-row">
                 <span className="profile-choice-name">{profiles.user2.name || 'Usuário 2'}</span>
-                <button
-                  type="button"
-                  className="btn-login-edit-name"
-                  onClick={(e) => handleEditName(e, 'user2')}
-                  title="Editar nome"
-                >
-                  <Edit2 size={14} />
-                </button>
+                {!isUser2Occupied ? (
+                  <button
+                    type="button"
+                    className="btn-login-edit-name"
+                    onClick={(e) => handleEditProfile(e, 'user2')}
+                    title="Personalizar foto e apelido"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                ) : (
+                  <span className="profile-occupied-badge">
+                    <Lock size={12} />
+                    <span>Conectado</span>
+                  </span>
+                )}
               </div>
               <span className="profile-choice-desc">
-                {activeProfileId === 'user2' ? 'Selecionado ✓' : 'Clique para usar'}
+                {isUser2Occupied
+                  ? '🔒 Em uso na chamada'
+                  : activeProfileId === 'user2'
+                  ? 'Selecionado ✓'
+                  : 'Clique para usar'}
               </span>
             </div>
-            {activeProfileId === 'user2' && <Check size={18} className="profile-check-icon" />}
+            {activeProfileId === 'user2' && !isUser2Occupied && <Check size={18} className="profile-check-icon" />}
             <input
               type="file"
               ref={fileInputRefUser2}
@@ -178,12 +230,11 @@ export function ProfileSelectorPanel() {
         </button>
       </form>
 
-      {/* Modal de Edição de Nome */}
-      <EditNameModal
-        isOpen={!!editingUserId}
-        onClose={() => setEditingUserId(null)}
-        currentName={editingUserId ? profiles[editingUserId].name : ''}
-        onSave={(newName) => updateProfileName(editingUserId, newName)}
+      {/* Modal de Personalização Completa de Perfil */}
+      <EditProfileModal
+        isOpen={!!editingProfileId}
+        onClose={() => setEditingProfileId(null)}
+        profileId={editingProfileId}
       />
     </div>
   );

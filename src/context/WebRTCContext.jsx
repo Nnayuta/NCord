@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import Peer from 'peerjs';
 import {
   QUALITY_PRESETS,
@@ -19,7 +19,7 @@ const WebRTCContext = createContext(null);
 
 export function WebRTCProvider({ children }) {
   const { showToast } = useToast();
-  const { myProfile, otherProfile } = useProfiles();
+  const { myProfile, otherProfile, applyRemoteProfileUpdate } = useProfiles();
   const { mode, remoteIp } = useServer();
 
   const [inCall, setInCall] = useState(false);
@@ -61,6 +61,7 @@ export function WebRTCProvider({ children }) {
   const dataConnRef = useRef(null);
   const remotePeerIdRef = useRef(null);
   const localScreenCallRef = useRef(null);
+  const occupyIntervalRef = useRef(null);
 
   const realMicTrackRef = useRef(null);
   const realCamTrackRef = useRef(null);
@@ -69,6 +70,37 @@ export function WebRTCProvider({ children }) {
 
   const videoSenderRef = useRef(null);
   const audioSenderRef = useRef(null);
+  const mainMediaCallRef = useRef(null);
+
+  const setupMediaSenders = useCallback((call) => {
+    if (!call) return;
+    mainMediaCallRef.current = call;
+
+    const extractSenders = () => {
+      try {
+        const pc = call.peerConnection;
+        if (!pc) return;
+        const senders = pc.getSenders();
+        for (const sender of senders) {
+          if (sender.track) {
+            if (sender.track.kind === 'video') {
+              videoSenderRef.current = sender;
+            } else if (sender.track.kind === 'audio') {
+              audioSenderRef.current = sender;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao extrair senders de mídia:', err);
+      }
+    };
+
+    extractSenders();
+    if (call.peerConnection) {
+      call.peerConnection.addEventListener('connectionstatechange', extractSenders);
+    }
+    call.on('stream', extractSenders);
+  }, []);
 
   const localLevelDetectorRef = useRef(null);
   const remoteLevelDetectorRef = useRef(null);
@@ -120,6 +152,11 @@ export function WebRTCProvider({ children }) {
           realMicTrackRef.current.enabled = true;
         }
 
+        if (!audioSenderRef.current && mainMediaCallRef.current?.peerConnection) {
+          const senders = mainMediaCallRef.current.peerConnection.getSenders();
+          audioSenderRef.current = senders.find((s) => s.track && s.track.kind === 'audio') || null;
+        }
+
         if (audioSenderRef.current && realMicTrackRef.current) {
           await audioSenderRef.current.replaceTrack(realMicTrackRef.current);
         }
@@ -139,6 +176,12 @@ export function WebRTCProvider({ children }) {
         if (!dummyAudioTrackRef.current) {
           dummyAudioTrackRef.current = createDummyAudioTrack();
         }
+
+        if (!audioSenderRef.current && mainMediaCallRef.current?.peerConnection) {
+          const senders = mainMediaCallRef.current.peerConnection.getSenders();
+          audioSenderRef.current = senders.find((s) => s.track && s.track.kind === 'audio') || null;
+        }
+
         if (audioSenderRef.current && dummyAudioTrackRef.current) {
           await audioSenderRef.current.replaceTrack(dummyAudioTrackRef.current);
         }
@@ -169,6 +212,11 @@ export function WebRTCProvider({ children }) {
           realCamTrackRef.current.enabled = true;
         }
 
+        if (!videoSenderRef.current && mainMediaCallRef.current?.peerConnection) {
+          const senders = mainMediaCallRef.current.peerConnection.getSenders();
+          videoSenderRef.current = senders.find((s) => s.track && s.track.kind === 'video') || null;
+        }
+
         if (videoSenderRef.current && realCamTrackRef.current) {
           await videoSenderRef.current.replaceTrack(realCamTrackRef.current);
           await applySenderParameters(videoSenderRef.current, activePreset, false);
@@ -189,6 +237,12 @@ export function WebRTCProvider({ children }) {
         if (!dummyVideoTrackRef.current) {
           dummyVideoTrackRef.current = createDummyVideoTrack();
         }
+
+        if (!videoSenderRef.current && mainMediaCallRef.current?.peerConnection) {
+          const senders = mainMediaCallRef.current.peerConnection.getSenders();
+          videoSenderRef.current = senders.find((s) => s.track && s.track.kind === 'video') || null;
+        }
+
         if (videoSenderRef.current && dummyVideoTrackRef.current) {
           await videoSenderRef.current.replaceTrack(dummyVideoTrackRef.current);
         }
@@ -208,6 +262,36 @@ export function WebRTCProvider({ children }) {
     setSpotlightTarget((prev) => (prev === target ? null : target));
   }, []);
 
+  // Parar Compartilhamento de Tela Local
+  const stopScreenShare = useCallback(() => {
+    try {
+      if (localScreenStream) {
+        localScreenStream.getTracks().forEach((t) => {
+          try { t.stop(); } catch (e) {}
+        });
+      }
+      setLocalScreenStream(null);
+
+      if (localScreenCallRef.current) {
+        try {
+          localScreenCallRef.current.close();
+        } catch (e) {}
+        localScreenCallRef.current = null;
+      }
+
+      if (dataConnRef.current && dataConnRef.current.open) {
+        try {
+          dataConnRef.current.send({ type: 'screen-share-stop' });
+        } catch (e) {}
+      }
+
+      electronBridge.stopProcessAudio().catch(() => {});
+      showToast('Compartilhamento de tela finalizado.', 'info');
+    } catch (err) {
+      console.warn('[WebRTC] Erro ao parar compartilhamento de tela:', err);
+    }
+  }, [localScreenStream, showToast]);
+
   // Iniciar ou Alterar Compartilhamento de Tela Local (In-Flight Swap)
   const startScreenShare = useCallback(async (sourceId = null) => {
     try {
@@ -219,13 +303,14 @@ export function WebRTCProvider({ children }) {
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: sourceId,
-              minWidth: 1280,
               maxWidth: 3840,
-              minHeight: 720,
               maxHeight: 2160,
               maxFrameRate: activePreset.maxFps || 60
             }
           }
+        }).catch((err) => {
+          console.warn('[WebRTC] getUserMedia desktop capture falhou/cancelado:', err);
+          return null;
         });
       } else {
         stream = await navigator.mediaDevices.getDisplayMedia({
@@ -234,52 +319,80 @@ export function WebRTCProvider({ children }) {
             frameRate: { ideal: activePreset.maxFps || 60 }
           },
           audio: true
+        }).catch((err) => {
+          console.warn('[WebRTC] getDisplayMedia falhou/cancelado:', err);
+          return null;
         });
       }
 
-      if (!stream) return;
+      if (!stream) {
+        return;
+      }
 
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.contentHint = activePreset.contentHint || 'detail';
+
+        // Lidar com fechamento da janela capturada de forma segura
         videoTrack.onended = () => {
-          stopScreenShare();
+          try {
+            console.log('[WebRTC] Track de tela finalizada (janela fechada ou captura interrompida).');
+            stopScreenShare();
+            electronBridge.stopProcessAudio().catch(() => {});
+            showToast('A transmissão da janela foi encerrada.', 'info');
+          } catch (e) {
+            console.warn('[WebRTC] Erro no encerramento da track de vídeo:', e);
+          }
+        };
+
+        videoTrack.onmute = () => {
+          console.log('[WebRTC] Track de tela pausada.');
+        };
+
+        videoTrack.onunmute = () => {
+          console.log('[WebRTC] Track de tela retomada.');
         };
       }
 
       // Se já estava transmitindo tela, fazer troca dinâmica (In-Flight Replace)
       if (localScreenStream) {
-        const oldVideoTrack = localScreenStream.getVideoTracks()[0];
-        if (oldVideoTrack) oldVideoTrack.stop();
+        try {
+          const oldVideoTrack = localScreenStream.getVideoTracks()[0];
+          if (oldVideoTrack) {
+            try { oldVideoTrack.stop(); } catch (e) {}
+          }
 
-        const wasapiAudioTrack = audioWorkletManager.getMixedAudioTrack();
-        const combinedTracks = [videoTrack];
-        if (wasapiAudioTrack) combinedTracks.push(wasapiAudioTrack);
-        if (stream.getAudioTracks()[0]) combinedTracks.push(stream.getAudioTracks()[0]);
+          const wasapiAudioTrack = audioWorkletManager.getMixedAudioTrack();
+          const combinedTracks = [videoTrack];
+          if (wasapiAudioTrack) combinedTracks.push(wasapiAudioTrack);
+          if (stream.getAudioTracks()[0]) combinedTracks.push(stream.getAudioTracks()[0]);
 
-        const updatedScreenStream = new MediaStream(combinedTracks);
-        setLocalScreenStream(updatedScreenStream);
+          const updatedScreenStream = new MediaStream(combinedTracks.filter(Boolean));
+          setLocalScreenStream(updatedScreenStream);
 
-        if (localScreenCallRef.current && localScreenCallRef.current.peerConnection) {
-          try {
-            const senders = localScreenCallRef.current.peerConnection.getSenders();
-            const vSender = senders.find((s) => s.track && s.track.kind === 'video') || senders[0];
-            if (vSender) {
-              await vSender.replaceTrack(videoTrack);
-              await applySenderParameters(vSender, activePreset, true);
-            }
-          } catch (swapErr) {
-            console.warn('[WebRTC] Fallback recriando chamada de tela após troca de fonte:', swapErr);
-            if (peerRef.current && remotePeerIdRef.current) {
-              localScreenCallRef.current.close();
-              const newCall = peerRef.current.call(remotePeerIdRef.current, updatedScreenStream, {
-                metadata: { type: 'screen-share' }
-              });
-              localScreenCallRef.current = newCall;
+          if (localScreenCallRef.current && localScreenCallRef.current.peerConnection) {
+            try {
+              const senders = localScreenCallRef.current.peerConnection.getSenders();
+              const vSender = senders.find((s) => s.track && s.track.kind === 'video') || senders[0];
+              if (vSender) {
+                await vSender.replaceTrack(videoTrack);
+                await applySenderParameters(vSender, activePreset, true);
+              }
+            } catch (swapErr) {
+              console.warn('[WebRTC] Fallback recriando chamada de tela após troca de fonte:', swapErr);
+              if (peerRef.current && remotePeerIdRef.current) {
+                try { localScreenCallRef.current.close(); } catch (e) {}
+                const newCall = peerRef.current.call(remotePeerIdRef.current, updatedScreenStream, {
+                  metadata: { type: 'screen-share' }
+                });
+                localScreenCallRef.current = newCall;
+              }
             }
           }
+          showToast('Fonte de transmissão alterada com sucesso! 🔄', 'success');
+        } catch (inFlightErr) {
+          console.warn('[WebRTC] Erro durante troca dinâmica de tela:', inFlightErr);
         }
-        showToast('Fonte de transmissão alterada com sucesso! 🔄', 'success');
         return;
       }
 
@@ -288,7 +401,7 @@ export function WebRTCProvider({ children }) {
       if (wasapiAudioTrack) combinedTracks.push(wasapiAudioTrack);
       if (stream.getAudioTracks()[0]) combinedTracks.push(stream.getAudioTracks()[0]);
 
-      const finalScreenStream = new MediaStream(combinedTracks);
+      const finalScreenStream = new MediaStream(combinedTracks.filter(Boolean));
       setLocalScreenStream(finalScreenStream);
 
       // Chamar parceiro com a stream de tela dedicada
@@ -303,7 +416,7 @@ export function WebRTCProvider({ children }) {
         }
       }
 
-      if (dataConnRef.current) {
+      if (dataConnRef.current && dataConnRef.current.open) {
         try {
           dataConnRef.current.send({ type: 'screen-share-start' });
         } catch (e) {}
@@ -311,33 +424,12 @@ export function WebRTCProvider({ children }) {
 
       showToast('Sua tela está sendo transmitida em Ultra HD! 🚀', 'success');
     } catch (err) {
-      console.warn('Falha ao iniciar compartilhamento de tela:', err);
+      console.warn('[WebRTC] Falha ao iniciar compartilhamento de tela:', err);
       showToast('Compartilhamento de tela cancelado.', 'info');
     }
-  }, [activePreset, localScreenStream, showToast]);
+  }, [activePreset, localScreenStream, showToast, stopScreenShare]);
 
-  // Parar Compartilhamento de Tela Local
-  const stopScreenShare = useCallback(() => {
-    if (localScreenStream) {
-      localScreenStream.getTracks().forEach((t) => t.stop());
-    }
-    setLocalScreenStream(null);
 
-    if (localScreenCallRef.current) {
-      try {
-        localScreenCallRef.current.close();
-      } catch (e) {}
-      localScreenCallRef.current = null;
-    }
-
-    if (dataConnRef.current) {
-      try {
-        dataConnRef.current.send({ type: 'screen-share-stop' });
-      } catch (e) {}
-    }
-
-    showToast('Compartilhamento de tela finalizado.', 'info');
-  }, [localScreenStream, showToast]);
 
   // Entrar na Sala
   const joinRoom = useCallback(async (room = 'lovechat') => {
@@ -384,12 +476,25 @@ export function WebRTCProvider({ children }) {
 
       peer.on('open', (id) => {
         console.log(`[PeerJS] Conectado como: ${id}`);
+        
+        // Registrar perfil como ocupado no servidor
+        const currentProfId = myProfile?.id || 'user1';
+        apiService.occupyProfile(currentProfId, id, cleanRoom);
+
+        if (occupyIntervalRef.current) clearInterval(occupyIntervalRef.current);
+        occupyIntervalRef.current = setInterval(() => {
+          if (peerRef.current) {
+            apiService.heartbeatProfile(currentProfId, id);
+          }
+        }, 6000);
+
         if (!isHost && targetPeerId) {
           const conn = peer.connect(targetPeerId, { reliable: true });
           setupDataConnection(conn);
 
           // Disparar chamada de mídia principal
           const mediaCall = peer.call(targetPeerId, initialStream, { metadata: { type: 'media' } });
+          setupMediaSenders(mediaCall);
           mediaCall.on('stream', (rStream) => {
             setRemoteStream(rStream);
             const aTrack = rStream.getAudioTracks()[0];
@@ -423,6 +528,7 @@ export function WebRTCProvider({ children }) {
         } else {
           // Chamada de mídia principal (voz/câmera)
           call.answer(initialStream);
+          setupMediaSenders(call);
           call.on('stream', (rStream) => {
             setRemoteStream(rStream);
             const aTrack = rStream.getAudioTracks()[0];
@@ -445,6 +551,18 @@ export function WebRTCProvider({ children }) {
     }
   }, [mode, remoteIp, showToast, updateRemoteAudioDetector]);
 
+  // Sincronizar atualizações de perfil em tempo real via WebRTC DataChannel
+  useEffect(() => {
+    if (dataConnRef.current && dataConnRef.current.open && myProfile) {
+      try {
+        dataConnRef.current.send({
+          type: 'profile-update',
+          profile: myProfile
+        });
+      } catch (e) {}
+    }
+  }, [myProfile]);
+
   function setupDataConnection(conn) {
     dataConnRef.current = conn;
 
@@ -459,7 +577,11 @@ export function WebRTCProvider({ children }) {
 
     conn.on('data', (data) => {
       if (!data) return;
-      if (data.type === 'screen-share-start') {
+      if (data.type === 'profile-sync' || data.type === 'profile-update') {
+        if (data.profile) {
+          applyRemoteProfileUpdate(data.profile);
+        }
+      } else if (data.type === 'screen-share-start') {
         showToast('O parceiro começou a transmitir a tela! 📺', 'info');
       } else if (data.type === 'screen-share-stop') {
         setRemoteScreenStream(null);
@@ -475,12 +597,24 @@ export function WebRTCProvider({ children }) {
 
   // Sair da Sala
   const leaveRoom = useCallback(() => {
+    if (occupyIntervalRef.current) {
+      clearInterval(occupyIntervalRef.current);
+      occupyIntervalRef.current = null;
+    }
+
     if (realMicTrackRef.current) realMicTrackRef.current.stop();
     if (realCamTrackRef.current) realCamTrackRef.current.stop();
     if (localScreenStream) localScreenStream.getTracks().forEach((t) => t.stop());
 
+    if (mainMediaCallRef.current) {
+      try { mainMediaCallRef.current.close(); } catch (e) {}
+      mainMediaCallRef.current = null;
+    }
+    videoSenderRef.current = null;
+    audioSenderRef.current = null;
+
     if (peerRef.current) {
-      apiService.leaveRoom(peerRef.current.id);
+      apiService.leaveRoom(peerRef.current.id, myProfile?.id);
       peerRef.current.destroy();
       peerRef.current = null;
     }
@@ -494,7 +628,7 @@ export function WebRTCProvider({ children }) {
     setIsMicMuted(true);
     setIsVideoOff(true);
     showToast('Você saiu da chamada.', 'info');
-  }, [localScreenStream, showToast]);
+  }, [localScreenStream, myProfile, showToast]);
 
   const changeQualityPreset = useCallback(async (presetKey) => {
     const preset = QUALITY_PRESETS[presetKey];

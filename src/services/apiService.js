@@ -40,12 +40,21 @@ export class ApiService {
   }
 
   async getMyIp() {
+    if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.getMyIp) {
+      try {
+        const electronIp = await window.electronAPI.getMyIp();
+        if (electronIp && (electronIp.ip || electronIp.zerotierIp || electronIp.lanIp)) {
+          return electronIp;
+        }
+      } catch (e) {
+        console.warn('[ApiService] Aviso ao obter IP nativo Electron:', e);
+      }
+    }
     try {
       const res = await fetch(this.getFullUrl('/api/my-ip'));
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
-      console.warn('[ApiService] Erro ao obter IP:', err);
       return { ip: '127.0.0.1', zerotierIp: '127.0.0.1', lanIp: '127.0.0.1' };
     }
   }
@@ -84,14 +93,41 @@ export class ApiService {
     return await this.updateDb({ notes });
   }
 
-  async getRoomStatus(roomName) {
+  async getRoomStatus(roomName = 'lovechat') {
     try {
       const res = await fetch(this.getFullUrl(`/api/room/${roomName}/status`));
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
-      console.warn('[ApiService] Erro ao consultar sala:', err);
-      return { hostOnline: false, peersCount: 0, peers: [] };
+      return { hostOnline: false, peersCount: 0, peers: [], occupiedProfiles: [] };
+    }
+  }
+
+  async occupyProfile(profileId, peerId, roomName = 'lovechat') {
+    try {
+      const res = await fetch(this.getFullUrl('/api/room/occupy'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, peerId, room: roomName })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false, occupiedProfiles: [] };
+    }
+  }
+
+  async heartbeatProfile(profileId, peerId) {
+    try {
+      const res = await fetch(this.getFullUrl('/api/room/heartbeat'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, peerId })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false };
     }
   }
 
@@ -105,16 +141,68 @@ export class ApiService {
     }
   }
 
-  async leaveRoom(peerId) {
+  async leaveRoom(peerId, profileId) {
     try {
       await fetch(this.getFullUrl('/api/room/leave'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ peerId })
+        body: JSON.stringify({ peerId, profileId })
       });
     } catch (err) {
       console.warn('[ApiService] Erro ao notificar saída:', err);
     }
+  }
+
+  // Métodos do Álbum de Fotos Compartilhado
+  async getAlbumStatus() {
+    try {
+      const res = await fetch(this.getFullUrl('/api/album/status'));
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      return { isConfigured: false, folderName: null, count: 0 };
+    }
+  }
+
+  async getAlbumPhotos() {
+    try {
+      const res = await fetch(this.getFullUrl('/api/album/photos'));
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      return { isConfigured: false, folderName: null, count: 0, photos: [] };
+    }
+  }
+
+  async setAlbumFolder(folderPath) {
+    try {
+      const res = await fetch(this.getFullUrl('/api/album/set-folder'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderPath })
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async clearAlbumFolder() {
+    try {
+      const res = await fetch(this.getFullUrl('/api/album/clear-folder'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      return { success: false };
+    }
+  }
+
+  getPhotoUrl(filename) {
+    return this.getFullUrl(`/api/album/photo/${encodeURIComponent(filename)}`);
   }
 }
 

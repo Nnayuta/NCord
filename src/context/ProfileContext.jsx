@@ -8,6 +8,7 @@ const ProfileContext = createContext(null);
 export function ProfileProvider({ children }) {
   const { showToast } = useToast();
   const [activeProfileId, setActiveProfileId] = useState('user1');
+  const [occupiedProfiles, setOccupiedProfiles] = useState([]);
   const [profiles, setProfiles] = useState({
     user1: { id: 'user1', name: 'Usuário 1', avatar: null },
     user2: { id: 'user2', name: 'Usuário 2', avatar: null }
@@ -17,11 +18,22 @@ export function ProfileProvider({ children }) {
   const fetchProfiles = useCallback(async () => {
     try {
       const db = await apiService.getDb();
-      if (db && db.profiles) {
-        setProfiles((prev) => ({
-          user1: { ...prev.user1, ...(db.profiles.user1 || {}) },
-          user2: { ...prev.user2, ...(db.profiles.user2 || {}) }
-        }));
+      if (db) {
+        if (db.profiles) {
+          setProfiles((prev) => ({
+            user1: { ...prev.user1, ...(db.profiles.user1 || {}) },
+            user2: { ...prev.user2, ...(db.profiles.user2 || {}) }
+          }));
+        }
+        if (Array.isArray(db.occupiedProfiles)) {
+          setOccupiedProfiles(db.occupiedProfiles);
+          // Se o perfil atualmente selecionado já estiver em uso, alternar para o outro disponível
+          if (db.occupiedProfiles.includes('user1') && !db.occupiedProfiles.includes('user2')) {
+            setActiveProfileId((curr) => (curr === 'user1' ? 'user2' : curr));
+          } else if (db.occupiedProfiles.includes('user2') && !db.occupiedProfiles.includes('user1')) {
+            setActiveProfileId((curr) => (curr === 'user2' ? 'user1' : curr));
+          }
+        }
       }
     } catch (e) {
       console.warn('[ProfileContext] Falha ao sincronizar perfis:', e);
@@ -46,6 +58,14 @@ export function ProfileProvider({ children }) {
     initProfile();
   }, [fetchProfiles]);
 
+  // Sincronização periódica com o servidor (a cada 3s)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchProfiles();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [fetchProfiles]);
+
   const selectActiveProfile = useCallback(async (profileId) => {
     setActiveProfileId(profileId);
     if (isElectron) {
@@ -53,6 +73,18 @@ export function ProfileProvider({ children }) {
     } else {
       localStorage.setItem('lovechat_active_profile', profileId);
     }
+  }, []);
+
+  // Aplicar atualização recebida remotamente do parceiro via WebRTC DataChannel
+  const applyRemoteProfileUpdate = useCallback((remoteProf) => {
+    if (!remoteProf || !remoteProf.id) return;
+    setProfiles((prev) => ({
+      ...prev,
+      [remoteProf.id]: {
+        ...prev[remoteProf.id],
+        ...remoteProf
+      }
+    }));
   }, []);
 
   // Atualizar nome de um perfil
@@ -79,6 +111,27 @@ export function ProfileProvider({ children }) {
     }
   }, [showToast]);
 
+  // Remover foto de perfil (voltar ao avatar padrão)
+  const removeProfileAvatar = useCallback(async (profileId) => {
+    setProfiles((prev) => ({
+      ...prev,
+      [profileId]: {
+        ...prev[profileId],
+        avatar: null
+      }
+    }));
+
+    try {
+      await apiService.updateProfile({
+        id: profileId,
+        avatar: null
+      });
+      showToast('Foto de perfil removida com sucesso.', 'info');
+    } catch (err) {
+      showToast('Erro ao sincronizar com o servidor.', 'error');
+    }
+  }, [showToast]);
+
   // Processar e atualizar avatar (imagem base64 redimensionada)
   const updateProfileAvatar = useCallback(async (profileId, file) => {
     if (!file) return;
@@ -91,7 +144,7 @@ export function ProfileProvider({ children }) {
       const img = new Image();
       img.onload = async () => {
         const canvas = document.createElement('canvas');
-        const maxDim = 256;
+        const maxDim = 512;
         let width = img.width;
         let height = img.height;
 
@@ -153,6 +206,7 @@ export function ProfileProvider({ children }) {
     <ProfileContext.Provider
       value={{
         activeProfileId,
+        occupiedProfiles,
         profiles,
         myProfile,
         otherProfile,
@@ -160,6 +214,8 @@ export function ProfileProvider({ children }) {
         selectActiveProfile,
         updateProfileName,
         updateProfileAvatar,
+        removeProfileAvatar,
+        applyRemoteProfileUpdate,
         fetchProfiles
       }}
     >
