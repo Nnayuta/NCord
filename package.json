@@ -1,7 +1,7 @@
 {
   "name": "ncord",
   "productName": "LoveChat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LoveChat - Streaming P2P, Voz, Vídeo e Compartilhamento de Tela",
   "main": "electron-main.js",
   "scripts": {
