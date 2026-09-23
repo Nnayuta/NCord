@@ -5,9 +5,11 @@ import { ProfileProvider } from './context/ProfileContext';
 import { NotesProvider } from './context/NotesContext';
 import { AudioMixerProvider } from './context/AudioMixerContext';
 import { WebRTCProvider, useWebRTC } from './context/WebRTCContext';
+import { UpdateProvider } from './context/UpdateContext';
 import { LoginScreen } from './components/Login/LoginScreen';
 import { RoomLayout } from './components/Room/RoomLayout';
 import { Toast } from './components/Common/Toast';
+import { UpdateModal } from './components/Modals/UpdateModal';
 
 function AppContent() {
   const { inCall } = useWebRTC();
@@ -15,6 +17,7 @@ function AppContent() {
   return (
     <>
       <Toast />
+      <UpdateModal />
       {!inCall ? <LoginScreen /> : <RoomLayout />}
     </>
   );
@@ -23,17 +26,20 @@ function AppContent() {
 export default function App() {
   return (
     <ToastProvider>
-      <ServerProvider>
-        <ProfileProvider>
-          <NotesProvider>
-            <AudioMixerProvider>
-              <WebRTCProvider>
-                <AppContent />
-              </WebRTCProvider>
-            </AudioMixerProvider>
-          </NotesProvider>
-        </ProfileProvider>
-      </ServerProvider>
+      <UpdateProvider>
+        <ServerProvider>
+          <ProfileProvider>
+            <NotesProvider>
+              <AudioMixerProvider>
+                <WebRTCProvider>
+                  <AppContent />
+                </WebRTCProvider>
+              </AudioMixerProvider>
+            </NotesProvider>
+          </ProfileProvider>
+        </ServerProvider>
+      </UpdateProvider>
     </ToastProvider>
   );
 }
+

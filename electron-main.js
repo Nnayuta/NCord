@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 const { exec } = require('child_process');
+const { setupAutoUpdaterIPC, checkForUpdates } = require('./updater-main');
 
 // ==========================================
 // CAPTURA EXCLUSIVA DE ÁUDIO POR JANELA (WASAPI PROCESS LOOPBACK)
@@ -409,6 +410,25 @@ async function createWindow() {
     mainWindow.show();
     mainWindow.focus();
   });
+
+  // ==========================================
+  // INICIALIZAÇÃO DO AUTO-UPDATER
+  // ==========================================
+  setupAutoUpdaterIPC(mainWindow);
+
+  // Verificação silenciosa de atualização em segundo plano após 5s
+  setTimeout(async () => {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const updateInfo = await checkForUpdates();
+        if (updateInfo && updateInfo.updateAvailable) {
+          mainWindow.webContents.send('updater:update-available', updateInfo);
+        }
+      }
+    } catch (e) {
+      console.warn('[AutoUpdater] Aviso na checagem automática inicial:', e.message);
+    }
+  }, 5000);
 
   // ==========================================
   // ATALHOS NATIVOS DE TECLADO (CTRL+R, F5, F12)

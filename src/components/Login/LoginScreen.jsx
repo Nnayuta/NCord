@@ -3,12 +3,17 @@ import { Heart } from 'lucide-react';
 import { useServer } from '../../context/ServerContext';
 import { ServerConnectPanel } from './ServerConnectPanel';
 import { ProfileSelectorPanel } from './ProfileSelectorPanel';
+import { UpdateBadge } from '../Common/UpdateBadge';
 
 export function LoginScreen() {
   const { isServerConfigured } = useServer();
 
   return (
     <section className="login-container">
+      <div className="login-update-badge-wrapper">
+        <UpdateBadge variant="button" />
+      </div>
+
       <div className="brand-header">
         <div className="logo-container">
           <Heart size={32} />

@@ -58,5 +58,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSavedSettings: () => ipcRenderer.invoke('get-saved-settings'),
   saveUserProfile: (profileId) => ipcRenderer.invoke('save-user-profile', profileId),
   requestFirewall: () => ipcRenderer.invoke('request-firewall'),
-  checkFirewall: () => ipcRenderer.invoke('check-firewall')
+  checkFirewall: () => ipcRenderer.invoke('check-firewall'),
+
+  // Sistema de Auto-Update (GitHub Releases)
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: (downloadUrl) => ipcRenderer.invoke('updater:download', downloadUrl),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  getAppVersion: () => ipcRenderer.invoke('updater:get-version'),
+  openReleasesPage: () => ipcRenderer.invoke('updater:open-releases-page'),
+  onUpdateAvailable: (callback) => {
+    ipcRenderer.removeAllListeners('updater:update-available');
+    ipcRenderer.on('updater:update-available', (_, info) => callback(info));
+  },
+  onUpdateProgress: (callback) => {
+    ipcRenderer.removeAllListeners('updater:download-progress');
+    ipcRenderer.on('updater:download-progress', (_, progress) => callback(progress));
+  },
+  onUpdateDownloaded: (callback) => {
+    ipcRenderer.removeAllListeners('updater:download-complete');
+    ipcRenderer.on('updater:download-complete', (_, data) => callback(data));
+  }
 });

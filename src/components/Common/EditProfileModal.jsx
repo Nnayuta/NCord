@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, Camera, Upload, Trash2, X, Check, Sparkles, Heart } from 'lucide-react';
+import { User, Camera, Upload, Trash2, X, Check, Sparkles, Heart, RefreshCw } from 'lucide-react';
 import { useProfiles } from '../../context/ProfileContext';
+import { useAutoUpdate } from '../../context/UpdateContext';
 
 export function EditProfileModal({ isOpen, onClose, profileId }) {
   const { profiles, updateProfileName, updateProfileAvatar, removeProfileAvatar } = useProfiles();
+  const { currentVersion, status, checkUpdates } = useAutoUpdate();
   const targetId = profileId || 'user1';
   const currentProfile = profiles[targetId] || { name: '', avatar: null };
 
@@ -154,8 +156,26 @@ export function EditProfileModal({ isOpen, onClose, profileId }) {
             </div>
           </div>
 
+          {/* Seção de Atualização do Aplicativo */}
+          <div className="profile-update-card">
+            <div className="profile-update-info">
+              <span className="profile-update-title">LoveChat • Versão do App</span>
+              <span className="profile-update-version">v{currentVersion}</span>
+            </div>
+            <button
+              type="button"
+              className="btn-profile-check-update"
+              onClick={() => checkUpdates(true)}
+              disabled={status === 'checking' || status === 'downloading'}
+              title="Buscar novas versões no GitHub"
+            >
+              <RefreshCw size={13} className={status === 'checking' ? 'spin-fast' : ''} />
+              <span>{status === 'checking' ? 'Verificando...' : 'Verificar Atualizações'}</span>
+            </button>
+          </div>
+
           {/* Rodapé com Ações */}
-          <div className="screen-picker-actions" style={{ marginTop: '1.5rem' }}>
+          <div className="screen-picker-actions" style={{ marginTop: '1.25rem' }}>
             <button type="button" className="btn-picker-cancel" onClick={onClose}>
               Cancelar
             </button>

@@ -1,0 +1,54 @@
+name: Build & Release LoveChat
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag da versão (ex: v1.0.1)'
+        required: true
+        default: 'v1.0.1'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Windows Executable & Create Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar Dependências
+        run: npm install
+
+      - name: Compilar Frontend Vite
+        run: npm run build
+
+      - name: Gerar Executável Portátil (LoveChat.exe)
+        run: npx electron-builder --win portable
+
+      - name: Publicar Release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LoveChat ${{ github.ref_name || github.event.inputs.tag_name }}
+          tag_name: ${{ github.ref_name || github.event.inputs.tag_name }}
+          files: |
+            dist/LoveChat.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

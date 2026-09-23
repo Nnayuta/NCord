@@ -272,6 +272,72 @@ export const electronBridge = {
       console.warn('[ElectronBridge] Falha checkFirewall:', e);
       return { applied: true };
     }
+  },
+
+  // Sistema de Auto-Update (GitHub Releases)
+  checkForUpdates: async () => {
+    if (!isElectron || !window.electronAPI?.checkForUpdates) {
+      return { updateAvailable: false, currentVersion: '1.0.0', isWeb: true };
+    }
+    try {
+      return await window.electronAPI.checkForUpdates();
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha checkForUpdates:', e);
+      return { updateAvailable: false, error: e.message };
+    }
+  },
+  downloadUpdate: async (downloadUrl) => {
+    if (!isElectron || !window.electronAPI?.downloadUpdate) return { success: false };
+    try {
+      return await window.electronAPI.downloadUpdate(downloadUrl);
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha downloadUpdate:', e);
+      return { success: false, error: e.message };
+    }
+  },
+  installUpdate: async () => {
+    if (!isElectron || !window.electronAPI?.installUpdate) return { success: false };
+    try {
+      return await window.electronAPI.installUpdate();
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha installUpdate:', e);
+      return { success: false, error: e.message };
+    }
+  },
+  getAppVersion: async () => {
+    if (!isElectron || !window.electronAPI?.getAppVersion) return { version: '1.0.0' };
+    try {
+      return await window.electronAPI.getAppVersion();
+    } catch (e) {
+      return { version: '1.0.0' };
+    }
+  },
+  openReleasesPage: async () => {
+    if (!isElectron || !window.electronAPI?.openReleasesPage) return;
+    try {
+      await window.electronAPI.openReleasesPage();
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha openReleasesPage:', e);
+    }
+  },
+  onUpdateAvailable: (callback) => {
+    if (!isElectron || !window.electronAPI?.onUpdateAvailable) return;
+    try {
+      window.electronAPI.onUpdateAvailable(callback);
+    } catch (e) {}
+  },
+  onUpdateProgress: (callback) => {
+    if (!isElectron || !window.electronAPI?.onUpdateProgress) return;
+    try {
+      window.electronAPI.onUpdateProgress(callback);
+    } catch (e) {}
+  },
+  onUpdateDownloaded: (callback) => {
+    if (!isElectron || !window.electronAPI?.onUpdateDownloaded) return;
+    try {
+      window.electronAPI.onUpdateDownloaded(callback);
+    } catch (e) {}
   }
 };
+
 

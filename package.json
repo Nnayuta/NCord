@@ -10,7 +10,11 @@
     "build": "vite build",
     "desktop": "electron .",
     "dev:desktop": "concurrently -k -p \"[{name}]\" -n \"SERVER,VITE,DESKTOP\" -c \"cyan,magenta,yellow\" \"node server.js\" \"vite\" \"electron .\"",
-    "dist": "npm run build && electron-builder --win portable"
+    "dist": "npm run build && electron-builder --win portable",
+    "release": "node scripts/release.js",
+    "release:patch": "node scripts/release.js patch",
+    "release:minor": "node scripts/release.js minor",
+    "release:major": "node scripts/release.js major"
   },
   "dependencies": {
     "cors": "^2.8.5",
