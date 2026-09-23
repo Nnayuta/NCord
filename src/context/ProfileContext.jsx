@@ -27,12 +27,6 @@ export function ProfileProvider({ children }) {
         }
         if (Array.isArray(db.occupiedProfiles)) {
           setOccupiedProfiles(db.occupiedProfiles);
-          // Se o perfil atualmente selecionado já estiver em uso, alternar para o outro disponível
-          if (db.occupiedProfiles.includes('user1') && !db.occupiedProfiles.includes('user2')) {
-            setActiveProfileId((curr) => (curr === 'user1' ? 'user2' : curr));
-          } else if (db.occupiedProfiles.includes('user2') && !db.occupiedProfiles.includes('user1')) {
-            setActiveProfileId((curr) => (curr === 'user2' ? 'user1' : curr));
-          }
         }
       }
     } catch (e) {
@@ -133,60 +127,72 @@ export function ProfileProvider({ children }) {
   }, [showToast]);
 
   // Processar e atualizar avatar (imagem base64 redimensionada)
-  const updateProfileAvatar = useCallback(async (profileId, file) => {
-    if (!file) return;
+  const updateProfileAvatar = useCallback((profileId, file) => {
+    if (!file) return Promise.resolve();
 
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const rawBase64 = e.target.result;
-      
-      // Redimensionar para tamanho otimizado (max 256x256)
-      const img = new Image();
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        const maxDim = 512;
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > maxDim) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          }
-        } else {
-          if (height > maxDim) {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.85);
-
-        setProfiles((prev) => ({
-          ...prev,
-          [profileId]: {
-            ...prev[profileId],
-            avatar: optimizedBase64
-          }
-        }));
-
-        try {
-          await apiService.updateProfile({
-            id: profileId,
-            avatar: optimizedBase64
-          });
-          showToast('Foto de perfil atualizada com sucesso! ✨', 'success');
-        } catch (err) {
-          showToast('Erro ao sincronizar foto com o servidor.', 'error');
-        }
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = (err) => {
+        showToast('Erro ao ler imagem.', 'error');
+        reject(err);
       };
-      img.src = rawBase64;
-    };
-    reader.readAsDataURL(file);
+      reader.onload = (e) => {
+        const rawBase64 = e.target.result;
+        
+        // Redimensionar para tamanho otimizado (max 512x512)
+        const img = new Image();
+        img.onerror = (err) => {
+          showToast('Erro ao processar imagem.', 'error');
+          reject(err);
+        };
+        img.onload = async () => {
+          try {
+            const canvas = document.createElement('canvas');
+            const maxDim = 512;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > maxDim) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              }
+            } else {
+              if (height > maxDim) {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+
+            setProfiles((prev) => ({
+              ...prev,
+              [profileId]: {
+                ...prev[profileId],
+                avatar: optimizedBase64
+              }
+            }));
+
+            await apiService.updateProfile({
+              id: profileId,
+              avatar: optimizedBase64
+            });
+            showToast('Foto de perfil atualizada com sucesso! ✨', 'success');
+            resolve(optimizedBase64);
+          } catch (err) {
+            showToast('Erro ao sincronizar foto com o servidor.', 'error');
+            reject(err);
+          }
+        };
+        img.src = rawBase64;
+      };
+      reader.readAsDataURL(file);
+    });
   }, [showToast]);
 
   const myProfile = profiles[activeProfileId] || {

@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Controle de conexão e hospedagem de servidor
   getMyIp: () => ipcRenderer.invoke('get-my-ip'),
+  discoverServers: () => ipcRenderer.invoke('discover-servers'),
   connectToServer: (targetIp) => ipcRenderer.invoke('connect-to-server', targetIp),
   hostLocalServer: () => ipcRenderer.invoke('host-local-server'),
   stopLocalServer: () => ipcRenderer.invoke('stop-local-server'),

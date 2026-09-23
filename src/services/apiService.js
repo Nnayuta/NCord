@@ -132,6 +132,16 @@ export class ApiService {
   }
 
   async discoverServers() {
+    if (typeof window !== 'undefined' && window.electronAPI && window.electronAPI.discoverServers) {
+      try {
+        const electronRes = await window.electronAPI.discoverServers();
+        if (electronRes && Array.isArray(electronRes.servers)) {
+          return electronRes;
+        }
+      } catch (e) {
+        console.warn('[ApiService] Erro ao descobrir servidores via Electron:', e);
+      }
+    }
     try {
       const res = await fetch(this.getFullUrl('/api/discover-servers'));
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);

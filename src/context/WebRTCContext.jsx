@@ -437,7 +437,7 @@ export function WebRTCProvider({ children }) {
     setConnectionState('connecting');
 
     const cleanRoom = (room || 'lovechat').toLowerCase().replace(/[^a-z0-9-]/g, '');
-    const prefix = cleanRoom.startsWith('lovechat-') ? cleanRoom : `lovechat-${cleanRoom}`;
+    const prefix = cleanRoom.startsWith('lovechat') ? cleanRoom : `lovechat-${cleanRoom}`;
 
     dummyAudioTrackRef.current = createDummyAudioTrack();
     dummyVideoTrackRef.current = createDummyVideoTrack();
@@ -446,7 +446,7 @@ export function WebRTCProvider({ children }) {
     setLocalStream(initialStream);
 
     const isHost = mode === 'host';
-    const myPeerId = isHost ? `${prefix}-host` : `${prefix}-guest-${Math.floor(Math.random() * 1000)}`;
+    const myPeerId = isHost ? `${prefix}-host` : `${prefix}-guest-${Math.floor(Math.random() * 10000)}`;
     const targetPeerId = isHost ? null : `${prefix}-host`;
     setPeerRole(isHost ? 'host' : 'guest');
 
@@ -455,13 +455,18 @@ export function WebRTCProvider({ children }) {
     }
 
     try {
-      let peerHost = window.location.hostname;
-      let peerPort = Number(window.location.port) || 3000;
+      let peerHost = 'localhost';
+      let peerPort = 3000;
       let peerPath = '/peerjs';
 
       if (!isHost && remoteIp) {
         peerHost = remoteIp;
         peerPort = 3000;
+      } else if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== '') {
+        peerHost = window.location.hostname;
+        if (window.location.port && window.location.port !== '5173') {
+          peerPort = Number(window.location.port) || 3000;
+        }
       }
 
       const peer = new Peer(myPeerId, {
@@ -500,6 +505,12 @@ export function WebRTCProvider({ children }) {
             const aTrack = rStream.getAudioTracks()[0];
             if (aTrack) updateRemoteAudioDetector(aTrack);
           });
+          mediaCall.on('close', () => {
+            if (mainMediaCallRef.current && mainMediaCallRef.current.peer === targetPeerId) {
+              setRemoteStream(null);
+              setConnectionState('disconnected');
+            }
+          });
         }
       });
 
@@ -534,6 +545,12 @@ export function WebRTCProvider({ children }) {
             const aTrack = rStream.getAudioTracks()[0];
             if (aTrack) updateRemoteAudioDetector(aTrack);
           });
+          call.on('close', () => {
+            if (mainMediaCallRef.current && mainMediaCallRef.current.peer === call.peer) {
+              setRemoteStream(null);
+              setConnectionState(isHost ? 'waiting' : 'disconnected');
+            }
+          });
         }
       });
 
@@ -541,15 +558,17 @@ export function WebRTCProvider({ children }) {
         console.warn('[PeerJS] Erro:', err);
         if (err.type === 'peer-unavailable') {
           showToast('Anfitrião ainda não está online na sala. Aguardando...', 'info');
+          setConnectionState('connecting');
         }
       });
 
-      setConnectionState('connected');
+      // Se for host, aguarda o par; se for guest, aguarda abertura do canal
+      setConnectionState(isHost ? 'waiting' : 'connecting');
     } catch (err) {
       console.error('Erro fatal ao conectar:', err);
       setConnectionState('disconnected');
     }
-  }, [mode, remoteIp, showToast, updateRemoteAudioDetector]);
+  }, [mode, remoteIp, myProfile, showToast, updateRemoteAudioDetector]);
 
   // Sincronizar atualizações de perfil em tempo real via WebRTC DataChannel
   useEffect(() => {
@@ -567,7 +586,7 @@ export function WebRTCProvider({ children }) {
     dataConnRef.current = conn;
 
     conn.on('open', () => {
-      console.log('[DataConnection] Aberto!');
+      console.log(`[DataConnection] Canal de dados aberto com ${conn.peer}!`);
       setConnectionState('connected');
       conn.send({
         type: 'profile-sync',
@@ -590,8 +609,13 @@ export function WebRTCProvider({ children }) {
     });
 
     conn.on('close', () => {
-      console.log('[DataConnection] Fechado.');
-      setConnectionState('disconnected');
+      console.log(`[DataConnection] Canal de dados fechado para ${conn.peer}.`);
+      if (dataConnRef.current && dataConnRef.current.peer === conn.peer) {
+        dataConnRef.current = null;
+        setConnectionState(mode === 'host' ? 'waiting' : 'disconnected');
+        setRemoteStream(null);
+        setRemoteScreenStream(null);
+      }
     });
   }
 

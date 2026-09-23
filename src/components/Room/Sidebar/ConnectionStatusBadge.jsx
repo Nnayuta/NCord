@@ -4,13 +4,25 @@ import { useWebRTC } from '../../../context/WebRTCContext';
 export function ConnectionStatusBadge() {
   const { connectionState } = useWebRTC();
 
-  const isConnected = connectionState === 'connected';
+  let text = 'Aguardando par...';
+  let dotClass = 'waiting';
+
+  if (connectionState === 'connected') {
+    text = 'Conectado no Amor 💕';
+    dotClass = 'connected';
+  } else if (connectionState === 'connecting') {
+    text = 'Conectando ao par...';
+    dotClass = 'connecting';
+  } else if (connectionState === 'disconnected') {
+    text = 'Desconectado';
+    dotClass = 'disconnected';
+  }
 
   return (
     <div className="connection-status-panel">
       <div className="status-badge">
-        <span className={`status-circle ${isConnected ? 'connected' : 'waiting'}`}></span>
-        <span>{isConnected ? 'Conectado no Amor 💕' : 'Aguardando par...'}</span>
+        <span className={`status-circle ${dotClass}`}></span>
+        <span>{text}</span>
       </div>
     </div>
   );

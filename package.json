@@ -58,6 +58,10 @@
       "!database.json",
       "!*.md"
     ],
-    "asar": true
+    "asar": true,
+    "asarUnpack": [
+      "**/*.node",
+      "**/*.dll"
+    ]
   }
 }

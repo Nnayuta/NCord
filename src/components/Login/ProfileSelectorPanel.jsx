@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { RotateCcw, UserCheck, User, Camera, Edit2, Check, Sparkles, ArrowRight, Lock } from 'lucide-react';
 import { useServer } from '../../context/ServerContext';
 import { useProfiles } from '../../context/ProfileContext';
@@ -8,7 +8,7 @@ import { EditProfileModal } from '../Common/EditProfileModal';
 
 export function ProfileSelectorPanel() {
   const { showToast } = useToast();
-  const { connectedServerDesc, resetServerConnection } = useServer();
+  const { mode, connectedServerDesc, resetServerConnection } = useServer();
   const {
     activeProfileId,
     occupiedProfiles,
@@ -24,6 +24,22 @@ export function ProfileSelectorPanel() {
 
   const isUser1Occupied = Array.isArray(occupiedProfiles) && occupiedProfiles.includes('user1');
   const isUser2Occupied = Array.isArray(occupiedProfiles) && occupiedProfiles.includes('user2');
+
+  // Ajustar seleção inteligente:
+  // Se for Convidado (modo remote) e o user2 estiver livre, seleciona user2.
+  // Se for Anfitrião (modo host) e o user1 estiver livre, seleciona user1.
+  // Se user1 estiver ocupado, migra para user2. Se user2 estiver ocupado, migra para user1.
+  useEffect(() => {
+    if (isUser1Occupied && !isUser2Occupied) {
+      if (activeProfileId !== 'user2') selectActiveProfile('user2');
+    } else if (isUser2Occupied && !isUser1Occupied) {
+      if (activeProfileId !== 'user1') selectActiveProfile('user1');
+    } else if (mode === 'remote' && !isUser2Occupied && activeProfileId === 'user1') {
+      selectActiveProfile('user2');
+    } else if (mode === 'host' && !isUser1Occupied && activeProfileId === 'user2') {
+      selectActiveProfile('user1');
+    }
+  }, [mode, activeProfileId, isUser1Occupied, isUser2Occupied, selectActiveProfile]);
 
   const handleSelectUser = (userId) => {
     if (userId === 'user1' && isUser1Occupied) {

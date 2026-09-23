@@ -297,6 +297,53 @@ function getHostNetworkIps() {
   };
 }
 
+// ==========================================
+// AUTO-DESCOBERTA DE SERVIDORES NA REDE (UDP + PROBES HTTP)
+// ==========================================
+const dgram = require('dgram');
+const discoveredNetworkServers = new Map(); // ip -> { ip, port, hostName, lastSeen }
+let electronUdpSocket = null;
+
+function setupElectronUdpDiscovery() {
+  try {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    electronUdpSocket = socket;
+
+    socket.on('error', (err) => {
+      console.warn('[Electron Discovery] Erro no socket UDP:', err.message);
+    });
+
+    socket.on('message', (msg, rinfo) => {
+      try {
+        const data = JSON.parse(msg.toString('utf-8'));
+        if (data && data.app === 'lovechat') {
+          const remoteIp = rinfo.address;
+          const { zerotierIp, lanIp } = getHostNetworkIps();
+          if (remoteIp !== '127.0.0.1' && remoteIp !== zerotierIp && remoteIp !== lanIp) {
+            discoveredNetworkServers.set(remoteIp, {
+              ip: remoteIp,
+              port: data.port || 3000,
+              hostName: data.hostName || 'Amor',
+              lastSeen: Date.now()
+            });
+            console.log(`[Electron Discovery] Servidor LoveChat descoberto via UDP: ${remoteIp} (${data.hostName || 'Amor'})`);
+          }
+        }
+      } catch (e) {}
+    });
+
+    socket.bind(3001, () => {
+      try {
+        socket.setBroadcast(true);
+      } catch (e) {}
+    });
+  } catch (err) {
+    console.warn('[Electron Discovery] Falha ao inicializar UDP discovery:', err.message);
+  }
+}
+
+setupElectronUdpDiscovery();
+
 const server = require('./server');
 
 async function startLocalServer() {
@@ -805,6 +852,86 @@ ipcMain.handle('connect-to-server', async (event, targetIp) => {
 // Obter IPs locais e do ZeroTier sem precisar do servidor HTTP ativo
 ipcMain.handle('get-my-ip', async () => {
   return getHostNetworkIps();
+});
+
+// Descobrir servidores ativos na rede ZeroTier e LAN via probes diretos
+ipcMain.handle('discover-servers', async () => {
+  const { zerotierIp, lanIp, allIps } = getHostNetworkIps();
+  const foundServers = [];
+  const now = Date.now();
+  const seenIps = new Set();
+
+  for (const [ip, s] of discoveredNetworkServers.entries()) {
+    if (now - s.lastSeen < 20000) {
+      foundServers.push(s);
+      seenIps.add(s.ip);
+    }
+  }
+
+  // Varrer sub-redes ativas (ZeroTier e LAN)
+  const candidateSubnets = new Set();
+  if (allIps && Array.isArray(allIps)) {
+    for (const item of allIps) {
+      if (item && item.address && !item.address.startsWith('127.')) {
+        const parts = item.address.split('.');
+        if (parts.length === 4) {
+          candidateSubnets.add(`${parts[0]}.${parts[1]}.${parts[2]}`);
+        }
+      }
+    }
+  }
+
+  const probePromises = [];
+  for (const baseSubnet of candidateSubnets) {
+    for (let i = 1; i <= 254; i++) {
+      const targetIp = `${baseSubnet}.${i}`;
+      if (targetIp === zerotierIp || targetIp === lanIp || seenIps.has(targetIp)) continue;
+
+      probePromises.push(
+        new Promise((resolve) => {
+          const reqProbe = http.get(`http://${targetIp}:${SERVER_PORT}/api/my-ip`, { timeout: 400 }, (resProbe) => {
+            if (resProbe.statusCode >= 200 && resProbe.statusCode < 400) {
+              let body = '';
+              resProbe.on('data', (d) => (body += d));
+              resProbe.on('end', () => {
+                try {
+                  const parsed = JSON.parse(body);
+                  resolve({
+                    ip: targetIp,
+                    port: SERVER_PORT,
+                    hostName: parsed.hostName || 'Amor',
+                    ...(parsed || {})
+                  });
+                } catch (e) {
+                  resolve({ ip: targetIp, port: SERVER_PORT, hostName: 'Amor' });
+                }
+              });
+            } else {
+              resolve(null);
+            }
+          });
+          reqProbe.on('error', () => resolve(null));
+          reqProbe.on('timeout', () => {
+            reqProbe.destroy();
+            resolve(null);
+          });
+        })
+      );
+    }
+  }
+
+  const results = await Promise.all(probePromises);
+  for (const r of results) {
+    if (r && r.ip && !seenIps.has(r.ip)) {
+      seenIps.add(r.ip);
+      foundServers.push(r);
+    }
+  }
+
+  return {
+    success: true,
+    servers: foundServers
+  };
 });
 
 // Alternar para hospedar no próprio computador (inicia o servidor local sob demanda)

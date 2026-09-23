@@ -5,6 +5,7 @@ import {
   Video,
   VideoOff,
   Monitor,
+  Images,
   SlidersHorizontal,
   Sparkles,
   Maximize,
@@ -84,7 +85,7 @@ export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker, on
         onClick={onOpenAlbum}
         title="Álbum de Fotos do Casal 📸"
       >
-        <Sparkles size={20} color="#f43f8e" />
+        <Images size={20} />
       </button>
 
       {/* Mixer de Áudio */}

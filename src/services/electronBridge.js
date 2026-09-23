@@ -176,6 +176,16 @@ export const electronBridge = {
       return null;
     }
   },
+  discoverServers: async () => {
+    if (!isElectron || !window.electronAPI?.discoverServers) return { servers: [] };
+    try {
+      const res = await window.electronAPI.discoverServers();
+      return res || { servers: [] };
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha discoverServers:', e);
+      return { servers: [] };
+    }
+  },
   connectToServer: async (targetIp) => {
     if (!isElectron || !window.electronAPI?.connectToServer) return { success: true };
     try {
