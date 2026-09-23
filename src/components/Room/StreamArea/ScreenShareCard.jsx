@@ -39,7 +39,7 @@ export function ScreenShareCard({
         ref={videoRef}
         autoPlay
         playsInline
-        muted={isLocal}
+        muted={true}
         className={screenFitMode}
       />
 

@@ -22,7 +22,7 @@ export function AudioMixerProvider({ children }) {
     audioWorkletManager.init().catch((e) => console.warn('Falha AudioWorklet init:', e));
 
     electronBridge.onMixerProcessAudioChunk((data) => {
-      const buffer = data?.chunk || data?.data || (data instanceof ArrayBuffer ? data : null);
+      const buffer = data?.chunk || data?.data || (data instanceof ArrayBuffer ? data : null) || data;
       if (buffer) {
         audioWorkletManager.feedPCM(buffer);
       }
@@ -55,9 +55,8 @@ export function AudioMixerProvider({ children }) {
     setLoadingApps(true);
     try {
       const sources = await electronBridge.getAudioMixerSources();
-      if (Array.isArray(sources)) {
-        setApps(sources);
-      }
+      const appList = (sources && Array.isArray(sources.apps)) ? sources.apps : (Array.isArray(sources) ? sources : []);
+      setApps(appList);
     } catch (err) {
       console.warn('[AudioMixer] Erro ao carregar programas:', err);
     } finally {

@@ -3,6 +3,7 @@ node_modules/
 
 # Pacotes e artefatos de compilação
 dist/
+dist-client/
 build/
 *.exe
 

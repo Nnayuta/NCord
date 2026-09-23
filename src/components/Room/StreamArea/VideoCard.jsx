@@ -57,7 +57,7 @@ export function VideoCard({
           ref={videoRef}
           autoPlay
           playsInline
-          muted={isLocal}
+          muted={true}
           className="cover"
         />
       ) : (

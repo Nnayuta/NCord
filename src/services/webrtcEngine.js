@@ -117,9 +117,9 @@ export function createDummyAudioTrack() {
 }
 
 /**
- * Aplica parâmetros de bitrate e resolução ao RTCRtpSender
+ * Aplica parâmetros de bitrate, FPS e bloqueio de resolução ao RTCRtpSender
  */
-export async function applySenderParameters(sender, preset, isScreen = false) {
+export async function applySenderParameters(sender, preset = QUALITY_PRESETS.ultra, isScreen = false) {
   if (!sender || !sender.setParameters) return;
   try {
     const params = sender.getParameters();
@@ -145,28 +145,53 @@ export async function applySenderParameters(sender, preset, isScreen = false) {
 }
 
 /**
- * Modifica o SDP de oferta/resposta para injetar taxas b=AS e b=TIAS
+ * Transforma o SDP WebRTC para áudio estéreo broadcast (510 kbps) e vídeo Ultra HD (até 35 Mbps)
  */
-export function enhanceSDPBitrate(sdp, bitrateKbps) {
-  if (!sdp || !bitrateKbps) return sdp;
+export function transformSDP(sdp, isScreen = false, preset = QUALITY_PRESETS.ultra) {
+  if (!sdp) return sdp;
   try {
-    let lines = sdp.split('\r\n');
-    let mVideoFound = false;
-    let newLines = [];
+    const lines = sdp.split('\r\n');
+    const newLines = [];
+    const bitrateKbps = isScreen ? (preset.sdpScreenKbps || 35000) : (preset.sdpMediaKbps || 8000);
 
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i];
+
+      // Otimização do Codec de Áudio Opus para Broadcast Stereo 48kHz / 510 kbps
+      if (line.includes('a=fmtp:111') || line.includes('a=fmtp:96') || (line.startsWith('a=fmtp:') && line.includes('minptime='))) {
+        if (!line.includes('stereo=1')) {
+          line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=510000;cbr=1;useinbandfec=1;usedtx=0';
+        }
+      }
+
+      // Otimização de Codecs de Vídeo (H264 / VP8 / VP9) para bitrate de partida elevado
+      if (line.startsWith('a=fmtp:') && (line.includes('level-asymmetry-allowed') || line.includes('packetization-mode') || line.includes('profile-level-id'))) {
+        if (!line.includes('x-google-min-bitrate')) {
+          const minKbps = isScreen ? 12000 : 3000;
+          const startKbps = isScreen ? 20000 : 5000;
+          const maxKbps = bitrateKbps;
+          line += `;x-google-min-bitrate=${minKbps};x-google-start-bitrate=${startKbps};x-google-max-bitrate=${maxKbps}`;
+        }
+      }
+
       newLines.push(line);
 
+      // Injetar banda de vídeo b=AS e b=TIAS
       if (line.startsWith('m=video')) {
-        mVideoFound = true;
-        // Inserir modificadores de taxa
         newLines.push(`b=AS:${bitrateKbps}`);
         newLines.push(`b=TIAS:${bitrateKbps * 1000}`);
       }
+
+      // Injetar banda de áudio estéreo máxima b=AS:510
+      if (line.startsWith('m=audio')) {
+        newLines.push(`b=AS:510`);
+        newLines.push(`b=TIAS:510000`);
+      }
     }
+
     return newLines.join('\r\n');
-  } catch (e) {
+  } catch (err) {
+    console.warn('[WebRTC] Erro no transformSDP:', err);
     return sdp;
   }
 }

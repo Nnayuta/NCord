@@ -23,28 +23,27 @@ try {
 try {
   const koffi = require('koffi');
   const user32 = koffi.load('user32.dll');
-  GetWindowThreadProcessId = user32.func('uint32 __stdcall GetWindowThreadProcessId(void *hWnd, _Out_ uint32 *lpdwProcessId)');
+  GetWindowThreadProcessId = user32.func('uint32 __stdcall GetWindowThreadProcessId(intptr_t hWnd, _Out_ uint32 *lpdwProcessId)');
   console.log('[Electron] Módulo Koffi (GetWindowThreadProcessId) carregado com sucesso.');
 } catch (err) {
   console.warn('[Electron] Aviso: Não foi possível carregar koffi para resolução de PID:', err.message);
 }
 
 function getPidFromHwnd(hwndNumber) {
-  if (!GetWindowThreadProcessId || !hwndNumber) return 0;
+  if (!hwndNumber) return 0;
   try {
     const num = typeof hwndNumber === 'string' ? parseInt(hwndNumber, 10) : Number(hwndNumber);
-    if (!num || isNaN(num)) return 0;
-    const pidOut = [0];
-    GetWindowThreadProcessId(num, pidOut);
-    if (pidOut[0] > 0) return pidOut[0];
-    
-    // Tentar como BigInt se retorno inicial foi 0
-    GetWindowThreadProcessId(BigInt(num), pidOut);
-    return pidOut[0] || 0;
+    if (!num || isNaN(num) || num <= 0) return 0;
+
+    if (GetWindowThreadProcessId) {
+      const pidOut = [0];
+      GetWindowThreadProcessId(num, pidOut);
+      if (pidOut[0] > 0) return pidOut[0];
+    }
   } catch (err) {
     console.warn(`[Electron] Falha ao resolver PID para HWND ${hwndNumber}:`, err.message);
-    return 0;
   }
+  return 0;
 }
 
 function stopAllMixerCaptures() {
@@ -571,8 +570,8 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
       const streamOptions = { video: chosen };
       let hasProcessAudio = false;
 
-      if (withAudio) {
-        if (isWindowChoice && LoopbackCapture) {
+      if (withAudio && LoopbackCapture) {
+        if (isWindowChoice) {
           const rawHwnd = chosen.id.split(':')[1];
           const hwndNum = parseInt(rawHwnd, 10);
           const targetPid = getPidFromHwnd(hwndNum);
@@ -582,7 +581,7 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
             try {
               activeProcessCapture = new LoopbackCapture();
               activeProcessCapture.start(targetPid, true, (chunk) => {
-                if (mainWindow && !mainWindow.isDestroyed()) {
+                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
                   mainWindow.webContents.send('process-audio-chunk', chunk);
                 }
               });
@@ -594,11 +593,34 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
               streamOptions.audio = 'loopback';
             }
           } else {
-            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando fallback loopback.`);
-            streamOptions.audio = 'loopback';
+            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando fallback de áudio do sistema.`);
+            try {
+              activeProcessCapture = new LoopbackCapture();
+              activeProcessCapture.startSystemAudio((chunk) => {
+                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                  mainWindow.webContents.send('process-audio-chunk', chunk);
+                }
+              });
+              hasProcessAudio = true;
+            } catch (e) {
+              streamOptions.audio = 'loopback';
+            }
           }
         } else {
-          streamOptions.audio = 'loopback';
+          // Captura de tela inteira: capturar áudio estéreo do sistema
+          console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
+          try {
+            activeProcessCapture = new LoopbackCapture();
+            activeProcessCapture.startSystemAudio((chunk) => {
+              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                mainWindow.webContents.send('process-audio-chunk', chunk);
+              }
+            });
+            hasProcessAudio = true;
+          } catch (sysAudioErr) {
+            console.warn('[Electron] Falha ao iniciar startSystemAudio:', sysAudioErr);
+            streamOptions.audio = 'loopback';
+          }
         }
       }
 
