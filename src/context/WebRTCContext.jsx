@@ -323,9 +323,12 @@ export function WebRTCProvider({ children }) {
         showToast('Câmera ativada 📷', 'info');
       } else {
         if (realCamTrackRef.current) {
-          realCamTrackRef.current.enabled = false;
+          try {
+            realCamTrackRef.current.stop();
+          } catch (e) {}
+          realCamTrackRef.current = null;
         }
-        if (!dummyVideoTrackRef.current) {
+        if (!dummyVideoTrackRef.current || dummyVideoTrackRef.current.readyState === 'ended') {
           dummyVideoTrackRef.current = createDummyVideoTrack();
         }
 
@@ -346,6 +349,11 @@ export function WebRTCProvider({ children }) {
             await vSender.replaceTrack(dummyVideoTrackRef.current);
           }
         }
+
+        setLocalStream((prev) => {
+          const audioTrack = prev ? prev.getAudioTracks()[0] : (dummyAudioTrackRef.current || createDummyAudioTrack());
+          return new MediaStream([dummyVideoTrackRef.current, audioTrack].filter(Boolean));
+        });
 
         setIsVideoOff(true);
 
@@ -865,9 +873,27 @@ export function WebRTCProvider({ children }) {
       occupyIntervalRef.current = null;
     }
 
-    if (realMicTrackRef.current) realMicTrackRef.current.stop();
-    if (realCamTrackRef.current) realCamTrackRef.current.stop();
-    if (localScreenStream) localScreenStream.getTracks().forEach((t) => t.stop());
+    if (realMicTrackRef.current) {
+      try { realMicTrackRef.current.stop(); } catch (e) {}
+      realMicTrackRef.current = null;
+    }
+    if (realCamTrackRef.current) {
+      try { realCamTrackRef.current.stop(); } catch (e) {}
+      realCamTrackRef.current = null;
+    }
+    if (dummyAudioTrackRef.current) {
+      try { dummyAudioTrackRef.current.stop(); } catch (e) {}
+      dummyAudioTrackRef.current = null;
+    }
+    if (dummyVideoTrackRef.current) {
+      try { dummyVideoTrackRef.current.stop(); } catch (e) {}
+      dummyVideoTrackRef.current = null;
+    }
+    if (localScreenStream) {
+      localScreenStream.getTracks().forEach((t) => {
+        try { t.stop(); } catch (e) {}
+      });
+    }
 
     if (mainMediaCallRef.current) {
       try { mainMediaCallRef.current.close(); } catch (e) {}
