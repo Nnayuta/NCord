@@ -9,6 +9,8 @@ export function FloatingParticipantAvatars() {
     remoteStream,
     isMicMuted,
     isVideoOff,
+    isRemoteMicMuted,
+    isRemoteVideoOff,
     isLocalSpeaking,
     isRemoteSpeaking,
     isFloatingAvatarsMinimized,
@@ -70,7 +72,7 @@ export function FloatingParticipantAvatars() {
   }
 
   const hasLocalVideo = !isVideoOff && localStream && localStream.getVideoTracks().some((t) => t.enabled);
-  const hasRemoteVideo = remoteStream && remoteStream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live');
+  const hasRemoteVideo = !isRemoteVideoOff && remoteStream && remoteStream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live');
 
   return (
     <div className="floating-participants-container">

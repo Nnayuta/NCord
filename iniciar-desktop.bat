@@ -30,10 +30,13 @@ if not exist "node_modules\" (
     echo.
 )
 
-:: 3. Garantir que o frontend React esta compilado
-if not exist "dist-client\" (
-    echo [INFO] Compilando frontend React...
-    call npm run build
+:: 3. Garantir que o frontend React esta atualizado e compilado
+echo [INFO] Compilando frontend React...
+call npm run build
+if %errorlevel% neq 0 (
+    echo [ERRO] Falha ao compilar frontend.
+    pause
+    exit /b 1
 )
 
 echo [OK] Abrindo LoveChat Desktop...

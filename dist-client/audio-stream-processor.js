@@ -37,14 +37,36 @@ class WindowAudioProcessor extends AudioWorkletProcessor {
   /**
    * Converte PCM 16-bit estéreo intercalado (L, R, L, R...) para Float32 e adiciona ao ring buffer
    */
-  pushPCM(arrayBuffer) {
-    if (!arrayBuffer || arrayBuffer.byteLength < 4) return;
+  pushPCM(input) {
+    if (!input) return;
 
     try {
+      let rawBuffer;
+      let byteOffset = 0;
+      let byteLength = 0;
+
+      if (input instanceof ArrayBuffer) {
+        rawBuffer = input;
+        byteOffset = 0;
+        byteLength = input.byteLength;
+      } else if (ArrayBuffer.isView(input)) {
+        rawBuffer = input.buffer;
+        byteOffset = input.byteOffset;
+        byteLength = input.byteLength;
+      } else if (input.buffer instanceof ArrayBuffer) {
+        rawBuffer = input.buffer;
+        byteOffset = input.byteOffset || 0;
+        byteLength = input.byteLength || input.length || rawBuffer.byteLength;
+      } else {
+        return;
+      }
+
+      if (byteLength < 4) return;
+
       // Garantir alinhamento de 2 bytes para Int16
-      const safeByteLength = arrayBuffer.byteLength - (arrayBuffer.byteLength % 2);
-      const int16View = new Int16Array(arrayBuffer, 0, Math.floor(safeByteLength / 2));
-      const numFrames = Math.floor(int16View.length / 2);
+      const numSamples = Math.floor(byteLength / 2);
+      const int16View = new Int16Array(rawBuffer, byteOffset, numSamples);
+      const numFrames = Math.floor(numSamples / 2); // 2 canais intercalados (L, R)
 
       for (let i = 0; i < numFrames; i++) {
         // Normalização de Int16 (-32768 a 32767) para Float32 (-1.0 a 1.0)

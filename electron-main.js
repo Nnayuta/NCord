@@ -518,162 +518,122 @@ ipcMain.handle('get-desktop-sources', async () => {
 });
 
 ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sourceName }) => {
-  if (pendingDisplayMediaCallback) {
-    const cb = pendingDisplayMediaCallback;
-    pendingDisplayMediaCallback = null;
+  const cb = pendingDisplayMediaCallback;
+  pendingDisplayMediaCallback = null;
 
-    try {
-      const isWindow = typeof sourceId === 'string' && sourceId.startsWith('window:');
-      const isScreen = typeof sourceId === 'string' && sourceId.startsWith('screen:');
-      const targetHwnd = isWindow ? sourceId.split(':')[1] : null;
+  try {
+    const isWindow = typeof sourceId === 'string' && sourceId.startsWith('window:');
+    const isScreen = typeof sourceId === 'string' && sourceId.startsWith('screen:');
+    const targetHwnd = isWindow ? sourceId.split(':')[1] : null;
 
-      let chosen = null;
+    let chosen = null;
 
-      // 1. Tentar encontrar diretamente no cache original das fontes listadas no modal
-      if (cachedRawDesktopSources && cachedRawDesktopSources.length > 0) {
-        // Busca exata por ID
-        chosen = cachedRawDesktopSources.find((s) => s.id === sourceId);
+    // 1. Tentar encontrar diretamente no cache original das fontes listadas no modal
+    if (cachedRawDesktopSources && cachedRawDesktopSources.length > 0) {
+      chosen = cachedRawDesktopSources.find((s) => s.id === sourceId);
 
-        // Se for janela, buscar por HWND caso o índice de display tenha variado
-        if (!chosen && isWindow && targetHwnd) {
-          chosen = cachedRawDesktopSources.find((s) => s.id.startsWith('window:') && s.id.split(':')[1] === targetHwnd);
-        }
-
-        // Se ainda não achou, buscar pelo título exato da janela/tela
-        if (!chosen && sourceName) {
-          const cleanName = sourceName.trim().toLowerCase();
-          chosen = cachedRawDesktopSources.find((s) => {
-            const sameType = isWindow ? s.id.startsWith('window:') : s.id.startsWith('screen:');
-            return sameType && (s.name || '').trim().toLowerCase() === cleanName;
-          });
-        }
-
-        // Busca aproximada por título para janelas
-        if (!chosen && isWindow && sourceName) {
-          const cleanName = sourceName.trim().toLowerCase();
-          chosen = cachedRawDesktopSources.find((s) => {
-            if (!s.id.startsWith('window:')) return false;
-            const itemTitle = (s.name || '').trim().toLowerCase();
-            return itemTitle && (itemTitle.includes(cleanName) || cleanName.includes(itemTitle));
-          });
-        }
+      if (!chosen && isWindow && targetHwnd) {
+        chosen = cachedRawDesktopSources.find((s) => s.id.startsWith('window:') && s.id.split(':')[1] === targetHwnd);
       }
 
-      // 2. Se não estiver no cache (ou lista foi perdida), buscar fontes frescas com as mesmas opções
-      if (!chosen) {
-        console.log('[Electron] Fonte não encontrada no cache, re-enumerando fontes do capturador...');
-        const freshSources = await desktopCapturer.getSources({
-          types: isWindow ? ['window'] : ['screen', 'window'],
-          thumbnailSize: { width: 320, height: 180 },
-          fetchWindowIcons: true
+      if (!chosen && sourceName) {
+        const cleanName = sourceName.trim().toLowerCase();
+        chosen = cachedRawDesktopSources.find((s) => {
+          const sameType = isWindow ? s.id.startsWith('window:') : s.id.startsWith('screen:');
+          return sameType && (s.name || '').trim().toLowerCase() === cleanName;
         });
-
-        chosen = freshSources.find((s) => s.id === sourceId);
-
-        if (!chosen && isWindow && targetHwnd) {
-          chosen = freshSources.find((s) => s.id.startsWith('window:') && s.id.split(':')[1] === targetHwnd);
-        }
-
-        if (!chosen && sourceName) {
-          const cleanName = sourceName.trim().toLowerCase();
-          chosen = freshSources.find((s) => {
-            const sameType = isWindow ? s.id.startsWith('window:') : s.id.startsWith('screen:');
-            return sameType && (s.name || '').trim().toLowerCase() === cleanName;
-          });
-        }
-
-        if (!chosen && isWindow && sourceName) {
-          const cleanName = sourceName.trim().toLowerCase();
-          chosen = freshSources.find((s) => {
-            if (!s.id.startsWith('window:')) return false;
-            const itemTitle = (s.name || '').trim().toLowerCase();
-            return itemTitle && (itemTitle.includes(cleanName) || cleanName.includes(itemTitle));
-          });
-        }
       }
+    }
 
-      // 3. REGRA CRÍTICA DE SEGURANÇA:
-      // Se o usuário selecionou uma JANELA e ela não foi encontrada, JAMAIS transmitir a tela inteira (sources[0])!
-      if (!chosen && isWindow) {
-        console.warn(`[Electron] Janela "${sourceName}" (${sourceId}) não foi encontrada. Cancelando captura para evitar transmitir a tela inteira por engano.`);
-        cb(null);
-        return { success: false, reason: 'Janela não encontrada' };
+    // 2. Se não estiver no cache, buscar fontes frescas
+    if (!chosen) {
+      const freshSources = await desktopCapturer.getSources({
+        types: isWindow ? ['window'] : ['screen', 'window'],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: true
+      });
+
+      chosen = freshSources.find((s) => s.id === sourceId);
+
+      if (!chosen && isWindow && targetHwnd) {
+        chosen = freshSources.find((s) => s.id.startsWith('window:') && s.id.split(':')[1] === targetHwnd);
       }
+    }
 
-      // Se o usuário selecionou tela e ela não foi encontrada especificamente, usar a primeira tela disponível
-      if (!chosen && isScreen) {
-        chosen = (cachedRawDesktopSources && cachedRawDesktopSources.find((s) => s.id.startsWith('screen:'))) || null;
-      }
+    if (!chosen && isScreen) {
+      chosen = (cachedRawDesktopSources && cachedRawDesktopSources.find((s) => s.id.startsWith('screen:'))) || null;
+    }
 
-      if (chosen) {
-        stopActiveProcessAudio();
+    if (chosen) {
+      stopActiveProcessAudio();
 
-        const isWindowChoice = chosen.id.startsWith('window:');
-        const streamOptions = { video: chosen };
-        let hasProcessAudio = false;
+      const isWindowChoice = chosen.id.startsWith('window:');
+      const streamOptions = { video: chosen };
+      let hasProcessAudio = false;
 
-        if (withAudio) {
-          if (isWindowChoice && LoopbackCapture) {
-            const rawHwnd = chosen.id.split(':')[1];
-            const hwndNum = parseInt(rawHwnd, 10);
-            const targetPid = getPidFromHwnd(hwndNum);
+      if (withAudio) {
+        if (isWindowChoice && LoopbackCapture) {
+          const rawHwnd = chosen.id.split(':')[1];
+          const hwndNum = parseInt(rawHwnd, 10);
+          const targetPid = getPidFromHwnd(hwndNum);
 
-            if (targetPid > 0) {
-              console.log(`[Electron] Iniciando captura exclusiva de áudio WASAPI para PID ${targetPid} (HWND ${hwndNum}, "${chosen.name}")...`);
-              try {
-                activeProcessCapture = new LoopbackCapture();
-                activeProcessCapture.start(targetPid, true, (chunk) => {
-                  if (mainWindow && !mainWindow.isDestroyed()) {
-                    mainWindow.webContents.send('process-audio-chunk', chunk);
-                  }
-                });
-                hasProcessAudio = true;
-                console.log(`[Electron] Captura de áudio de processo ativa com sucesso para o PID ${targetPid}!`);
-              } catch (captureErr) {
-                console.error('[Electron] Falha ao iniciar LoopbackCapture no PID alvo, usando fallback geral:', captureErr);
-                activeProcessCapture = null;
-                streamOptions.audio = 'loopback';
-              }
-            } else {
-              console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando fallback loopback.`);
+          if (targetPid > 0) {
+            console.log(`[Electron] Iniciando captura exclusiva de áudio WASAPI para PID ${targetPid} (HWND ${hwndNum}, "${chosen.name}")...`);
+            try {
+              activeProcessCapture = new LoopbackCapture();
+              activeProcessCapture.start(targetPid, true, (chunk) => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('process-audio-chunk', chunk);
+                }
+              });
+              hasProcessAudio = true;
+              console.log(`[Electron] Captura de áudio de processo ativa com sucesso para o PID ${targetPid}!`);
+            } catch (captureErr) {
+              console.error('[Electron] Falha ao iniciar LoopbackCapture no PID alvo:', captureErr);
+              activeProcessCapture = null;
               streamOptions.audio = 'loopback';
             }
           } else {
-            // Telas inteiras capturam áudio do sistema todo
+            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando fallback loopback.`);
             streamOptions.audio = 'loopback';
           }
+        } else {
+          streamOptions.audio = 'loopback';
         }
+      }
 
-        console.log(`[Electron] Fonte confirmada para transmissão: [${chosen.id}] "${chosen.name}" (tipo: ${isWindowChoice ? 'JANELA' : 'TELA'}, áudio: ${hasProcessAudio ? 'EXCLUSIVO-PROCESSO (WASAPI)' : (streamOptions.audio ? 'LOOPBACK-SISTEMA' : 'DESATIVADO')})`);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('process-audio-selected', {
-            success: true,
-            isWindow: isWindowChoice,
-            hasProcessAudio,
-            sourceId: chosen.id,
-            sourceName: chosen.name
-          });
-        }
-        cb(streamOptions);
-        return {
+      console.log(`[Electron] Fonte confirmada para transmissão: [${chosen.id}] "${chosen.name}" (tipo: ${isWindowChoice ? 'JANELA' : 'TELA'}, áudio: ${hasProcessAudio ? 'EXCLUSIVO-PROCESSO (WASAPI)' : (streamOptions.audio ? 'LOOPBACK-SISTEMA' : 'DESATIVADO')})`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('process-audio-selected', {
           success: true,
           isWindow: isWindowChoice,
           hasProcessAudio,
           sourceId: chosen.id,
           sourceName: chosen.name
-        };
-      } else {
-        console.warn('[Electron] Nenhuma fonte correspondente encontrada. Cancelando.');
-        cb(null);
-        return { success: false, reason: 'Fonte não encontrada' };
+        });
       }
-    } catch (e) {
-      console.error('[Electron] Erro ao selecionar tela/janela:', e);
-      try { cb(null); } catch (err) {}
-      return { success: false, error: e.message };
+      if (cb) {
+        cb(streamOptions);
+      }
+      return {
+        success: true,
+        isWindow: isWindowChoice,
+        hasProcessAudio,
+        sourceId: chosen.id,
+        sourceName: chosen.name
+      };
+    } else {
+      console.warn('[Electron] Nenhuma fonte correspondente encontrada.');
+      if (cb) cb(null);
+      return { success: false, reason: 'Fonte não encontrada' };
     }
+  } catch (e) {
+    console.error('[Electron] Erro ao selecionar tela/janela:', e);
+    if (cb) {
+      try { cb(null); } catch (err) {}
+    }
+    return { success: false, error: e.message };
   }
-  return { success: false, reason: 'Nenhuma captura pendente' };
 });
 
 ipcMain.handle('cancel-desktop-source', () => {

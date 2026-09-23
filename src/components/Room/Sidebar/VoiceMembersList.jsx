@@ -9,6 +9,8 @@ export function VoiceMembersList() {
   const {
     isMicMuted,
     isVideoOff,
+    isRemoteMicMuted,
+    isRemoteVideoOff,
     isLocalSpeaking,
     isRemoteSpeaking,
     connectionState,
@@ -108,8 +110,8 @@ export function VoiceMembersList() {
 
         {isRemoteOnline && (
           <div className="member-status-icons">
-            <span><Mic size={14} /></span>
-            <span><Video size={14} /></span>
+            <span>{isRemoteMicMuted ? <MicOff size={14} className="muted" /> : <Mic size={14} />}</span>
+            <span>{isRemoteVideoOff ? <VideoOff size={14} className="muted" /> : <Video size={14} />}</span>
           </div>
         )}
       </div>

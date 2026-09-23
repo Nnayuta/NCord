@@ -28,8 +28,16 @@ export function AudioMixerProvider({ children }) {
       }
     });
 
+    electronBridge.onProcessAudioChunk((data) => {
+      const buffer = data?.chunk || data?.data || (data instanceof ArrayBuffer ? data : null) || data;
+      if (buffer) {
+        audioWorkletManager.feedPCM(buffer);
+      }
+    });
+
     return () => {
       electronBridge.offMixerProcessAudioChunk();
+      electronBridge.offProcessAudioChunk();
     };
   }, []);
 

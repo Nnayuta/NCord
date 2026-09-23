@@ -81,6 +81,22 @@ export const electronBridge = {
       console.warn('[ElectronBridge] Falha ao registrar onOpenScreenPicker:', e);
     }
   },
+  onProcessAudioChunk: (callback) => {
+    if (!isElectron || !window.electronAPI?.onProcessAudioChunk) return;
+    try {
+      window.electronAPI.onProcessAudioChunk(callback);
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha onProcessAudioChunk:', e);
+    }
+  },
+  offProcessAudioChunk: () => {
+    if (!isElectron || !window.electronAPI?.offProcessAudioChunk) return;
+    try {
+      window.electronAPI.offProcessAudioChunk();
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha offProcessAudioChunk:', e);
+    }
+  },
   stopProcessAudio: async () => {
     if (!isElectron || !window.electronAPI?.stopProcessAudio) return;
     try {

@@ -21,6 +21,8 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker }) {
     remoteStream,
     isMicMuted,
     isVideoOff,
+    isRemoteMicMuted,
+    isRemoteVideoOff,
     isLocalSpeaking,
     isRemoteSpeaking
   } = useWebRTC();
@@ -68,8 +70,8 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker }) {
           isLocal={false}
           stream={remoteStream}
           profile={otherProfile}
-          isVideoOff={false}
-          isMicMuted={false}
+          isVideoOff={isRemoteVideoOff}
+          isMicMuted={isRemoteMicMuted}
           isSpeaking={isRemoteSpeaking}
           targetId="remote-camera"
         />
@@ -97,8 +99,8 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker }) {
           isLocal={false}
           stream={remoteStream}
           profile={otherProfile}
-          isVideoOff={false}
-          isMicMuted={false}
+          isVideoOff={isRemoteVideoOff}
+          isMicMuted={isRemoteMicMuted}
           isSpeaking={isRemoteSpeaking}
           targetId="remote-camera"
         />

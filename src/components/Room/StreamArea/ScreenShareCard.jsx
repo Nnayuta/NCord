@@ -43,6 +43,22 @@ export function ScreenShareCard({
         className={screenFitMode}
       />
 
+      {/* Áudio dedicado da transmissão remota */}
+      {!isLocal && (
+        <audio
+          ref={(el) => {
+            if (el && stream) {
+              el.srcObject = stream;
+              el.volume = isScreenMuted ? 0 : screenVolume;
+              el.play().catch(() => {});
+            }
+          }}
+          autoPlay
+          playsInline
+          style={{ display: 'none' }}
+        />
+      )}
+
       {/* Top Bar */}
       <div className="stream-top-bar">
         <div className="stream-live-tag">

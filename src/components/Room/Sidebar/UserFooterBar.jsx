@@ -2,9 +2,11 @@ import React, { useState, useRef } from 'react';
 import { Camera, Settings, Heart, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { useProfiles } from '../../../context/ProfileContext';
 import { useWebRTC } from '../../../context/WebRTCContext';
+import { useServer } from '../../../context/ServerContext';
 import { EditProfileModal } from '../../Common/EditProfileModal';
 
 export function UserFooterBar() {
+  const { mode } = useServer();
   const { myProfile, activeProfileId, updateProfileAvatar } = useProfiles();
   const { isMicMuted, toggleMic, isVideoOff, toggleVideo } = useWebRTC();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -62,7 +64,7 @@ export function UserFooterBar() {
         <div className="sidebar-user-text">
           <span className="sidebar-user-name">{myProfile.name || 'Você'}</span>
           <span className="sidebar-user-sub">
-            {activeProfileId === 'user1' ? 'Anfitrião • Online' : 'Convidado • Online'}
+            {mode === 'host' ? 'Anfitrião • Online' : 'Convidado • Online'}
           </span>
         </div>
       </div>

@@ -87,7 +87,7 @@ export function createDummyVideoTrack() {
   const stream = canvas.captureStream(1);
   const track = stream.getVideoTracks()[0];
   if (track) {
-    track.enabled = false;
+    track.enabled = true;
   }
   return track;
 }
@@ -106,7 +106,9 @@ export function createDummyAudioTrack() {
     gain.connect(dest);
     osc.start();
     const track = dest.stream.getAudioTracks()[0];
-    if (track) track.enabled = false;
+    if (track) {
+      track.enabled = true;
+    }
     return track;
   } catch (e) {
     console.warn('[WebRTC] Falha ao criar dummy audio track:', e);
@@ -125,14 +127,18 @@ export async function applySenderParameters(sender, preset, isScreen = false) {
       params.encodings = [{}];
     }
     const maxBitrate = isScreen ? preset.screenBitrate : preset.mediaBitrate;
-    const minBitrate = isScreen ? preset.screenMinBitrate : preset.mediaMinBitrate;
 
-    params.encodings[0].maxBitrate = maxBitrate;
-    params.encodings[0].minBitrate = minBitrate;
-    params.encodings[0].maxFramerate = preset.maxFps || 60;
+    for (const encoding of params.encodings) {
+      encoding.maxBitrate = maxBitrate;
+      encoding.maxFramerate = preset.maxFps || 60;
+      encoding.scaleResolutionDownBy = 1.0;
+      encoding.priority = 'high';
+      encoding.networkPriority = 'high';
+    }
     params.degradationPreference = preset.degradationPreference || 'maintain-resolution';
 
     await sender.setParameters(params);
+    console.log(`[WebRTC] Parâmetros aplicados no RTCRtpSender: ${(maxBitrate / 1_000_000).toFixed(1)} Mbps, ${preset.maxFps || 60} FPS, maintain-resolution`);
   } catch (err) {
     console.warn('[WebRTC] Aviso ao aplicar parâmetros no RTCRtpSender:', err);
   }
