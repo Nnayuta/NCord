@@ -1475,6 +1475,12 @@ input, textarea {
   border-color: var(--accent-pink);
 }
 
+.btn-card-action.active-fit {
+  background: rgba(244, 63, 142, 0.25);
+  border-color: var(--accent-pink);
+  color: #ffffff;
+}
+
 .avatar-frame.spotlight-frame {
   width: 170px;
   height: 170px;

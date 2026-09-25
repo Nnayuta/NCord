@@ -49,6 +49,7 @@ export function WebRTCProvider({ children }) {
   const [activePreset, setActivePreset] = useState(QUALITY_PRESETS.ultra);
   const [isTheaterMode, setIsTheaterMode] = useState(false);
   const [screenFitMode, setScreenFitMode] = useState('contain'); // 'contain' | 'cover'
+  const [cameraFitMode, setCameraFitMode] = useState('contain'); // 'contain' | 'cover'
   const [screenVolume, setScreenVolume] = useState(1.0);
   const [isScreenMuted, setIsScreenMuted] = useState(false);
 
@@ -161,6 +162,7 @@ export function WebRTCProvider({ children }) {
         video: {
           width: { ideal: 1920, min: 640 },
           height: { ideal: 1080, min: 480 },
+          aspectRatio: { ideal: 1.7777777778 },
           frameRate: { ideal: 30 }
         }
       });
@@ -956,6 +958,7 @@ export function WebRTCProvider({ children }) {
         activePreset,
         isTheaterMode,
         screenFitMode,
+        cameraFitMode,
         screenVolume,
         isScreenMuted,
         isLocalSpeaking,
@@ -971,6 +974,7 @@ export function WebRTCProvider({ children }) {
         changeQualityPreset,
         setIsTheaterMode,
         setScreenFitMode,
+        setCameraFitMode,
         setScreenVolume,
         setIsScreenMuted
       }}

@@ -613,7 +613,45 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
               streamOptions.audio = 'loopback';
             }
           } else {
-            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando fallback de áudio do sistema.`);
+            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando captura de áudio com isolamento anti-eco.`);
+            try {
+              activeProcessCapture = new LoopbackCapture();
+              const currentPid = process.pid;
+              activeProcessCapture.start(currentPid, false, (chunk) => {
+                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                  mainWindow.webContents.send('process-audio-chunk', chunk);
+                }
+              });
+              hasProcessAudio = true;
+            } catch (procErr) {
+              try {
+                activeProcessCapture = new LoopbackCapture();
+                activeProcessCapture.startSystemAudio((chunk) => {
+                  if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                    mainWindow.webContents.send('process-audio-chunk', chunk);
+                  }
+                });
+                hasProcessAudio = true;
+              } catch (e) {
+                streamOptions.audio = 'loopback';
+              }
+            }
+          }
+        } else {
+          // Captura de tela inteira: capturar todo o áudio do computador (WASAPI Anti-Echo Process Loopback)
+          console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
+          try {
+            activeProcessCapture = new LoopbackCapture();
+            const currentPid = process.pid;
+            activeProcessCapture.start(currentPid, false, (chunk) => {
+              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                mainWindow.webContents.send('process-audio-chunk', chunk);
+              }
+            });
+            hasProcessAudio = true;
+            console.log(`[Electron] Captura de áudio de tela cheia ativa com sucesso via WASAPI Loopback (excluindo PID ${currentPid})!`);
+          } catch (sysAudioErr) {
+            console.warn('[Electron] Falha ao iniciar loopback de processo para tela cheia, tentando fallback startSystemAudio:', sysAudioErr.message);
             try {
               activeProcessCapture = new LoopbackCapture();
               activeProcessCapture.startSystemAudio((chunk) => {
@@ -622,24 +660,12 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
                 }
               });
               hasProcessAudio = true;
-            } catch (e) {
+              console.log('[Electron] Captura de áudio de tela cheia ativa via fallback startSystemAudio!');
+            } catch (fallbackErr) {
+              console.error('[Electron] Falha ao iniciar captura de áudio para tela cheia:', fallbackErr.message);
+              activeProcessCapture = null;
               streamOptions.audio = 'loopback';
             }
-          }
-        } else {
-          // Captura de tela inteira: capturar áudio estéreo do sistema
-          console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
-          try {
-            activeProcessCapture = new LoopbackCapture();
-            activeProcessCapture.startSystemAudio((chunk) => {
-              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                mainWindow.webContents.send('process-audio-chunk', chunk);
-              }
-            });
-            hasProcessAudio = true;
-          } catch (sysAudioErr) {
-            console.warn('[Electron] Falha ao iniciar startSystemAudio:', sysAudioErr);
-            streamOptions.audio = 'loopback';
           }
         }
       }

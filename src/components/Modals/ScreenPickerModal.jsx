@@ -203,10 +203,12 @@ export function ScreenPickerModal({ isOpen, onClose }) {
           <div className="mixer-anti-echo-info">
             <div className="mixer-anti-echo-title">
               <Volume2 size={16} color="#4ade80" />
-              <span>Transmitir Áudio Exclusivo (WASAPI)</span>
+              <span>{activeTab === 'applications' ? 'Transmitir Áudio Exclusivo (WASAPI)' : 'Transmitir Áudio do Computador / Sistema (WASAPI)'}</span>
             </div>
             <div className="mixer-anti-echo-desc">
-              Transmite o som do aplicativo selecionado em alta definição sem chiados de fundo.
+              {activeTab === 'applications'
+                ? 'Transmite o som do aplicativo selecionado em alta definição sem chiados de fundo.'
+                : 'Transmite todo o som do computador/jogos/navegador em alta fidelidade com isolamento de eco.'}
             </div>
           </div>
           <label className="toggle-switch">

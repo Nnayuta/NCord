@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { Heart, MicOff, VideoOff, Maximize2, Minimize2, Sparkles } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Heart, MicOff, VideoOff, Maximize2, Minimize2, Sparkles, Scan } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 
 export function VideoCard({
@@ -12,7 +12,11 @@ export function VideoCard({
   targetId
 }) {
   const videoRef = useRef(null);
-  const { spotlightTarget, toggleSpotlight } = useWebRTC();
+  const { spotlightTarget, toggleSpotlight, cameraFitMode } = useWebRTC();
+  const [localFitMode, setLocalFitMode] = useState(null);
+
+  // Modo de ajuste do vídeo: se definido localmente no card, usa o local; caso contrário, usa o global do contexto (padrão 'contain')
+  const currentFitMode = localFitMode || cameraFitMode || 'contain';
 
   const isSpotlight = spotlightTarget === targetId;
   const hasVideoTrack = !isVideoOff && stream && stream.getVideoTracks().length > 0;
@@ -28,6 +32,14 @@ export function VideoCard({
     if (!e.target.closest('button')) {
       toggleSpotlight(targetId);
     }
+  };
+
+  const toggleFitMode = (e) => {
+    e.stopPropagation();
+    setLocalFitMode((prev) => {
+      const current = prev || cameraFitMode || 'contain';
+      return current === 'contain' ? 'cover' : 'contain';
+    });
   };
 
   const handleFullscreen = (e) => {
@@ -62,7 +74,7 @@ export function VideoCard({
           autoPlay
           playsInline
           muted={true}
-          className="cover"
+          className={currentFitMode}
         />
       ) : (
         <div className="avatar-placeholder">
@@ -89,6 +101,16 @@ export function VideoCard({
 
       {/* Barra de Ações Rápidas em Hover */}
       <div className="video-card-hover-actions">
+        {hasVideoTrack && (
+          <button
+            type="button"
+            className={`btn-card-action ${currentFitMode === 'contain' ? 'active-fit' : ''}`}
+            onClick={toggleFitMode}
+            title={currentFitMode === 'contain' ? 'Proporção: Sem Cortes (100% visível) - Clique para Preencher Card' : 'Proporção: Preencher Card - Clique para Sem Cortes'}
+          >
+            <Scan size={16} />
+          </button>
+        )}
         <button
           type="button"
           className="btn-card-action"
