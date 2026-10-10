@@ -60,6 +60,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   requestFirewall: () => ipcRenderer.invoke('request-firewall'),
   checkFirewall: () => ipcRenderer.invoke('check-firewall'),
 
+  // Conexão Web Segura (Cloudflare Quick Tunnel)
+  startWebTunnel: () => ipcRenderer.invoke('start-web-tunnel'),
+  stopWebTunnel: () => ipcRenderer.invoke('stop-web-tunnel'),
+  getWebTunnelStatus: () => ipcRenderer.invoke('get-web-tunnel-status'),
+  regenerateRoomToken: () => ipcRenderer.invoke('regenerate-room-token'),
+
   // Sistema de Auto-Update (GitHub Releases)
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   downloadUpdate: (downloadUrl) => ipcRenderer.invoke('updater:download', downloadUrl),

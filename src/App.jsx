@@ -10,6 +10,7 @@ import { LoginScreen } from './components/Login/LoginScreen';
 import { RoomLayout } from './components/Room/RoomLayout';
 import { Toast } from './components/Common/Toast';
 import { UpdateModal } from './components/Modals/UpdateModal';
+import { WebInviteModal } from './components/Modals/WebInviteModal';
 
 function AppContent() {
   const { inCall } = useWebRTC();
@@ -18,6 +19,7 @@ function AppContent() {
     <>
       <Toast />
       <UpdateModal />
+      <WebInviteModal />
       {!inCall ? <LoginScreen /> : <RoomLayout />}
     </>
   );

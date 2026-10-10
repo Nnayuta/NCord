@@ -337,6 +337,46 @@ export const electronBridge = {
     try {
       window.electronAPI.onUpdateDownloaded(callback);
     } catch (e) {}
+  },
+
+  // Conexão Web Segura (Cloudflare Quick Tunnel)
+  startWebTunnel: async () => {
+    if (!isElectron || !window.electronAPI?.startWebTunnel) {
+      return { success: false, error: 'Disponível apenas no aplicativo Desktop' };
+    }
+    try {
+      return await window.electronAPI.startWebTunnel();
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha startWebTunnel:', e);
+      return { success: false, error: e.message };
+    }
+  },
+  stopWebTunnel: async () => {
+    if (!isElectron || !window.electronAPI?.stopWebTunnel) return { success: false };
+    try {
+      return await window.electronAPI.stopWebTunnel();
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha stopWebTunnel:', e);
+      return { success: false, error: e.message };
+    }
+  },
+  getWebTunnelStatus: async () => {
+    if (!isElectron || !window.electronAPI?.getWebTunnelStatus) {
+      return { isOnline: false, status: 'idle' };
+    }
+    try {
+      return await window.electronAPI.getWebTunnelStatus();
+    } catch (e) {
+      return { isOnline: false, status: 'idle', error: e.message };
+    }
+  },
+  regenerateRoomToken: async () => {
+    if (!isElectron || !window.electronAPI?.regenerateRoomToken) return { success: false };
+    try {
+      return await window.electronAPI.regenerateRoomToken();
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   }
 };
 

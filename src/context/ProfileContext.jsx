@@ -44,8 +44,15 @@ export function ProfileProvider({ children }) {
           }
         } catch (e) {}
       } else {
-        const savedId = localStorage.getItem('lovechat_active_profile');
-        if (savedId) setActiveProfileId(savedId);
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlProfile = urlParams.get('profile');
+        if (urlProfile && (urlProfile === 'user1' || urlProfile === 'user2')) {
+          setActiveProfileId(urlProfile);
+        } else {
+          const savedId = localStorage.getItem('lovechat_active_profile');
+          if (savedId) setActiveProfileId(savedId);
+          else setActiveProfileId('user2');
+        }
       }
       await fetchProfiles();
     }

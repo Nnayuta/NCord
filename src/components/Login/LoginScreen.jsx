@@ -3,16 +3,29 @@ import { Heart } from 'lucide-react';
 import { useServer } from '../../context/ServerContext';
 import { ServerConnectPanel } from './ServerConnectPanel';
 import { ProfileSelectorPanel } from './ProfileSelectorPanel';
+import { WebGuestLanding } from './WebGuestLanding';
 import { UpdateBadge } from '../Common/UpdateBadge';
+import { isElectron } from '../../services/electronBridge';
 
 export function LoginScreen() {
   const { isServerConfigured } = useServer();
 
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const hasGuestParams = urlParams?.get('role') === 'guest' || urlParams?.has('token');
+
+  const isWebGuest =
+    !isElectron &&
+    typeof window !== 'undefined' &&
+    window.location.protocol !== 'file:' &&
+    (window.location.port !== '5173' || hasGuestParams);
+
   return (
     <section className="login-container">
-      <div className="login-update-badge-wrapper">
-        <UpdateBadge variant="button" />
-      </div>
+      {isElectron && (
+        <div className="login-update-badge-wrapper">
+          <UpdateBadge variant="button" />
+        </div>
+      )}
 
       <div className="brand-header">
         <div className="logo-container">
@@ -22,7 +35,13 @@ export function LoginScreen() {
         <p>Nosso cantinho privado de áudio, vídeo e tela 💕</p>
       </div>
 
-      {!isServerConfigured ? <ServerConnectPanel /> : <ProfileSelectorPanel />}
+      {isWebGuest ? (
+        <WebGuestLanding />
+      ) : !isServerConfigured ? (
+        <ServerConnectPanel />
+      ) : (
+        <ProfileSelectorPanel />
+      )}
     </section>
   );
 }

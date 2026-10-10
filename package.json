@@ -17,6 +17,7 @@
     "release:major": "node scripts/release.js major"
   },
   "dependencies": {
+    "cloudflared": "^0.7.3",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "koffi": "^3.2.1",
@@ -24,6 +25,7 @@
     "lucide-react": "^1.47.0",
     "peer": "^1.0.2",
     "peerjs": "^1.5.5",
+    "qrcode": "^1.5.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

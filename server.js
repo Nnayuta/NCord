@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { ExpressPeerServer } = require('peer');
 
 const app = express();
@@ -83,6 +84,99 @@ if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 app.use(express.static(path.join(__dirname, 'public')));
+
+// ==========================================
+// AUTENTICAÇÃO POR TOKEN SECRETO DA SALA
+// ==========================================
+let currentRoomToken = null;
+
+function getOrCreateRoomToken() {
+  if (!currentRoomToken) {
+    currentRoomToken = crypto.randomBytes(8).toString('hex');
+    console.log(`[Auth] Token de sala gerado: ${currentRoomToken}`);
+  }
+  return currentRoomToken;
+}
+
+function regenerateRoomToken() {
+  currentRoomToken = crypto.randomBytes(8).toString('hex');
+  console.log(`[Auth] Novo token secreto de sala gerado: ${currentRoomToken}`);
+  return currentRoomToken;
+}
+
+function isValidToken(token) {
+  if (!currentRoomToken) return true;
+  return Boolean(token && typeof token === 'string' && token.trim() === currentRoomToken);
+}
+
+function isLocalRequest(req) {
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+  if (!ip) return true;
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === '::ffff:127.0.0.1' ||
+    ip.startsWith('127.')
+  );
+}
+
+function tokenAuthMiddleware(req, res, next) {
+  const p = req.path.toLowerCase();
+
+  // Rotas isentas de autenticação por token
+  if (
+    !p.startsWith('/api/') ||
+    p === '/api/my-ip' ||
+    p === '/api/auth/verify'
+  ) {
+    return next();
+  }
+
+  // Requisições locais (Electron / Localhost) sempre liberadas
+  if (isLocalRequest(req)) {
+    return next();
+  }
+
+  // Requisições remotas (via túnel ou IP externo) precisam do token válido
+  const token =
+    req.query.token ||
+    req.headers['x-room-token'] ||
+    (req.headers['authorization'] ? req.headers['authorization'].replace(/^Bearer\s+/i, '') : null);
+
+  if (!isValidToken(token)) {
+    return res.status(401).json({
+      error: 'unauthorized',
+      message: 'Token de acesso à sala inválido ou ausente. Solicite o link ao anfitrião.'
+    });
+  }
+
+  next();
+}
+
+app.use(tokenAuthMiddleware);
+
+// Endpoints de autenticação de token
+app.get('/api/auth/token', (req, res) => {
+  const token = req.query.token || req.headers['x-room-token'];
+  if (!isLocalRequest(req) && !isValidToken(token)) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  res.json({ success: true, token: getOrCreateRoomToken() });
+});
+
+app.post('/api/auth/verify', (req, res) => {
+  const { token } = req.body || {};
+  const valid = isValidToken(token);
+  res.json({ success: true, valid });
+});
+
+app.post('/api/auth/regenerate', (req, res) => {
+  if (!isLocalRequest(req)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+  const newToken = regenerateRoomToken();
+  res.json({ success: true, token: newToken });
+});
 
 // Helper para ler banco JSON local
 function readDB() {
@@ -545,8 +639,8 @@ function getOccupiedProfiles() {
   const now = Date.now();
   const occupied = [];
   for (const [profId, data] of activeRoomProfiles.entries()) {
-    // Se passou mais de 20s sem heartbeat e não tem peer conectado, liberar
-    if (now - data.lastSeen > 20000 && (!data.peerId || !activePeers.has(data.peerId))) {
+    // Se passou mais de 60s sem heartbeat e não tem peer conectado, liberar
+    if (now - data.lastSeen > 60000 && (!data.peerId || !activePeers.has(data.peerId))) {
       activeRoomProfiles.delete(profId);
       continue;
     }
@@ -659,7 +753,7 @@ async function startServer() {
     debug: false,
     path: '/',
     allow_discovery: true,
-    alive_timeout: 10000
+    alive_timeout: 60000
   });
 
   peerServerHttp.on('connection', (client) => {
@@ -680,7 +774,16 @@ async function startServer() {
     console.log(`[PeerServer] Cliente desconectado: ${id} (Total ativos: ${activePeers.size})`);
   });
 
-  app.use('/peerjs', peerServerHttp);
+  app.use('/peerjs', (req, res, next) => {
+    if (!isLocalRequest(req) && currentRoomToken) {
+      const token = req.query.token || req.headers['x-room-token'];
+      if (!isValidToken(token)) {
+        console.warn(`[PeerServer] Conexão remota rejeitada por falta de token válido (IP: ${req.ip})`);
+        return res.status(403).json({ error: 'unauthorized_peer', message: 'Token de sala inválido' });
+      }
+    }
+    next();
+  }, peerServerHttp);
 
   return new Promise((resolve, reject) => {
     httpServer.listen(PORT, '0.0.0.0', () => {
@@ -709,4 +812,12 @@ if (require.main === module) {
   });
 }
 
-module.exports = { startServer, stopServer, setSharedAlbumFolder, app };
+module.exports = {
+  startServer,
+  stopServer,
+  setSharedAlbumFolder,
+  getOrCreateRoomToken,
+  regenerateRoomToken,
+  isValidToken,
+  app
+};

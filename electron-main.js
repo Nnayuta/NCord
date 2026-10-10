@@ -345,6 +345,8 @@ function setupElectronUdpDiscovery() {
 setupElectronUdpDiscovery();
 
 const server = require('./server');
+const tunnelManager = require('./tunnelManager');
+tunnelManager.init(userDataDir);
 
 async function startLocalServer() {
   try {
@@ -366,6 +368,7 @@ async function startLocalServer() {
 
 function stopLocalServer() {
   try {
+    tunnelManager.stopTunnel();
     server.stopServer();
   } catch (err) {
     console.error('[Electron] Erro ao parar servidor local:', err);
@@ -492,6 +495,9 @@ app.whenReady().then(() => {
 
   // Solicitar liberação automática no Firewall do Windows em segundo plano
   requestFirewallPermissions().catch((e) => console.warn('[Firewall] Erro não-bloqueante:', e));
+
+  // Iniciar servidor local em segundo plano para que /api e PeerJS fiquem imediatamente disponíveis
+  startLocalServer().catch((e) => console.warn('[Server] Falha inicialização local:', e));
 
   createWindow();
 
@@ -998,6 +1004,61 @@ ipcMain.handle('request-firewall', async () => {
 
 ipcMain.handle('check-firewall', async () => {
   return (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
+});
+
+// ==========================================
+// TÚNEL WEB SEGURO (ACESSO DO PAR VIA BROWSER)
+// ==========================================
+ipcMain.handle('start-web-tunnel', async () => {
+  try {
+    const serverRunning = await startLocalServer();
+    if (!serverRunning) {
+      return { success: false, error: 'Não foi possível iniciar o servidor local na porta 3000.' };
+    }
+
+    const tunnelRes = await tunnelManager.startTunnel(SERVER_PORT);
+    if (!tunnelRes.success) {
+      return { success: false, error: tunnelRes.error || 'Falha ao iniciar o túnel da Cloudflare.' };
+    }
+
+    const token = server.getOrCreateRoomToken();
+    const networkInfo = getHostNetworkIps();
+
+    return {
+      success: true,
+      url: tunnelRes.url,
+      token,
+      lanIp: networkInfo.lanIp,
+      zerotierIp: networkInfo.zerotierIp,
+      port: SERVER_PORT
+    };
+  } catch (err) {
+    console.error('[Electron] Erro ao iniciar web tunnel:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('stop-web-tunnel', async () => {
+  tunnelManager.stopTunnel();
+  return { success: true };
+});
+
+ipcMain.handle('get-web-tunnel-status', async () => {
+  const status = tunnelManager.getStatus();
+  const token = server.getOrCreateRoomToken();
+  const networkInfo = getHostNetworkIps();
+  return {
+    ...status,
+    token,
+    lanIp: networkInfo.lanIp,
+    zerotierIp: networkInfo.zerotierIp,
+    port: SERVER_PORT
+  };
+});
+
+ipcMain.handle('regenerate-room-token', async () => {
+  const token = server.regenerateRoomToken();
+  return { success: true, token };
 });
 
 // ==========================================

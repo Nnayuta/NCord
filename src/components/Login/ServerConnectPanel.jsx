@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Server, Wifi, Copy, ShieldCheck, ArrowRight, Sparkles, RotateCw, CheckCircle2 } from 'lucide-react';
+import { Server, Wifi, Copy, ShieldCheck, ArrowRight, Sparkles, RotateCw, CheckCircle2, Globe } from 'lucide-react';
 import { useServer } from '../../context/ServerContext';
 import { isElectron } from '../../services/electronBridge';
 
@@ -16,7 +16,8 @@ export function ServerConnectPanel() {
     isFirewallApplied,
     discoveredServers,
     isScanningServers,
-    scanForServers
+    scanForServers,
+    openWebInviteModal
   } = useServer();
 
   const [inputIp, setInputIp] = useState(remoteIp || '');
@@ -81,6 +82,18 @@ export function ServerConnectPanel() {
             >
               <ShieldCheck size={16} />
               <span>Liberar Firewall do Windows</span>
+            </button>
+          )}
+
+          {isElectron && (
+            <button
+              type="button"
+              className="btn-web-invite-action"
+              onClick={openWebInviteModal}
+              title="Iniciar Versão Web para o parceiro conectar pelo navegador"
+            >
+              <Globe size={16} />
+              <span>Conectar Par via Web (Gerar Link) 🌐</span>
             </button>
           )}
 

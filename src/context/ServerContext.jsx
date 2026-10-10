@@ -20,6 +20,15 @@ export function ServerProvider({ children }) {
   const [discoveredServers, setDiscoveredServers] = useState([]);
   const [isScanningServers, setIsScanningServers] = useState(false);
 
+  // Estado do Túnel Web Seguro (Cloudflare) e Token de Sala
+  const [webTunnelInfo, setWebTunnelInfo] = useState({
+    isOnline: false,
+    url: null,
+    token: '',
+    status: 'idle',
+    error: null
+  });
+
   // Carregar configurações iniciais salvas no Electron ou localStorage
   useEffect(() => {
     async function initSettings() {
@@ -31,11 +40,31 @@ export function ServerProvider({ children }) {
           }
           const fw = await electronBridge.checkFirewall();
           setIsFirewallApplied(!!fw.applied);
+
+          // Verificar status do túnel web se o app for reaberto
+          const tunnelStatus = await electronBridge.getWebTunnelStatus();
+          if (tunnelStatus) {
+            setWebTunnelInfo((prev) => ({ ...prev, ...tunnelStatus }));
+          }
         } catch (e) {}
       } else {
-        const savedRemoteIp = localStorage.getItem('lovechat_remote_ip');
-        if (savedRemoteIp) {
-          setRemoteIp(savedRemoteIp);
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get('token');
+        if (urlToken) {
+          apiService.setRoomToken(urlToken);
+        }
+
+        // Se está rodando no browser servido via HTTP/HTTPS (não dev port 5173 e não file://)
+        if (window.location.protocol !== 'file:' && window.location.port !== '5173') {
+          setMode('remote');
+          setIsServerConfigured(true);
+          const isTunnel = window.location.hostname.includes('trycloudflare.com');
+          setConnectedServerDesc(isTunnel ? 'Conectado via Túnel Seguro Cloudflare ✨' : `Conectado via Web (${window.location.hostname})`);
+        } else {
+          const savedRemoteIp = localStorage.getItem('lovechat_remote_ip');
+          if (savedRemoteIp) {
+            setRemoteIp(savedRemoteIp);
+          }
         }
       }
     }
@@ -177,6 +206,74 @@ export function ServerProvider({ children }) {
     showToast('IP copiado para a área de transferência! Envie para o seu amor 💕', 'success');
   }, [myIp, showToast]);
 
+  // Iniciar Túnel Web Seguro
+  const startWebTunnelAction = useCallback(async () => {
+    if (!isElectron) {
+      showToast('O túnel só pode ser iniciado no aplicativo Desktop do Anfitrião.', 'info');
+      return { success: false };
+    }
+
+    setWebTunnelInfo((prev) => ({ ...prev, status: 'starting' }));
+    showToast('Iniciando Túnel Web Seguro (Cloudflare)... 🚀', 'info');
+
+    try {
+      const res = await electronBridge.startWebTunnel();
+      if (res.success && res.url) {
+        setWebTunnelInfo({
+          isOnline: true,
+          url: res.url,
+          token: res.token || '',
+          lanIp: res.lanIp || '',
+          zerotierIp: res.zerotierIp || '',
+          status: 'online',
+          error: null
+        });
+        showToast('Link Web Seguro gerado com sucesso! ✨', 'success');
+        return res;
+      } else {
+        const errorMsg = res.error || 'Não foi possível iniciar o túnel.';
+        setWebTunnelInfo((prev) => ({ ...prev, status: 'error', error: errorMsg }));
+        showToast(errorMsg, 'error');
+        return { success: false, error: errorMsg };
+      }
+    } catch (err) {
+      setWebTunnelInfo((prev) => ({ ...prev, status: 'error', error: err.message }));
+      showToast('Erro ao iniciar túnel web.', 'error');
+      return { success: false, error: err.message };
+    }
+  }, [showToast]);
+
+  // Parar Túnel Web Seguro
+  const stopWebTunnelAction = useCallback(async () => {
+    if (isElectron) {
+      await electronBridge.stopWebTunnel();
+    }
+    setWebTunnelInfo({
+      isOnline: false,
+      url: null,
+      token: '',
+      status: 'idle',
+      error: null
+    });
+    showToast('Conexão Web encerrada.', 'info');
+  }, [showToast]);
+
+  // Renovar Token Secreto
+  const regenerateTokenAction = useCallback(async () => {
+    if (!isElectron) return;
+    const res = await electronBridge.regenerateRoomToken();
+    if (res && res.token) {
+      setWebTunnelInfo((prev) => ({ ...prev, token: res.token }));
+      showToast('Nova chave secreta gerada com sucesso! 🔑', 'success');
+      return res.token;
+    }
+  }, [showToast]);
+
+  // Controle do Modal de Convite Web
+  const [isWebInviteModalOpen, setIsWebInviteModalOpen] = useState(false);
+  const openWebInviteModal = useCallback(() => setIsWebInviteModalOpen(true), []);
+  const closeWebInviteModal = useCallback(() => setIsWebInviteModalOpen(false), []);
+
   return (
     <ServerContext.Provider
       value={{
@@ -198,7 +295,14 @@ export function ServerProvider({ children }) {
         resetServerConnection,
         requestFirewall,
         copyMyIp,
-        detectMyIp
+        detectMyIp,
+        webTunnelInfo,
+        startWebTunnelAction,
+        stopWebTunnelAction,
+        regenerateTokenAction,
+        isWebInviteModalOpen,
+        openWebInviteModal,
+        closeWebInviteModal
       }}
     >
       {children}

@@ -5,6 +5,36 @@
 export class ApiService {
   constructor() {
     this.baseUrl = '';
+    this.roomToken = '';
+    if (typeof window !== 'undefined') {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlToken = urlParams.get('token');
+        if (urlToken) {
+          this.setRoomToken(urlToken);
+        } else if (typeof sessionStorage !== 'undefined') {
+          this.roomToken = sessionStorage.getItem('lovechat_room_token') || '';
+        }
+      } catch (e) {}
+    }
+  }
+
+  setRoomToken(token) {
+    this.roomToken = (token || '').trim();
+    if (typeof sessionStorage !== 'undefined') {
+      if (this.roomToken) {
+        sessionStorage.setItem('lovechat_room_token', this.roomToken);
+      } else {
+        sessionStorage.removeItem('lovechat_room_token');
+      }
+    }
+  }
+
+  getRoomToken() {
+    if (!this.roomToken && typeof sessionStorage !== 'undefined') {
+      this.roomToken = sessionStorage.getItem('lovechat_room_token') || '';
+    }
+    return this.roomToken;
   }
 
   setBaseUrl(url) {
@@ -18,7 +48,7 @@ export class ApiService {
     }
     try {
       const parsed = new URL(cleaned);
-      if (!parsed.port && parsed.hostname !== 'localhost') {
+      if (!parsed.port && parsed.hostname !== 'localhost' && !cleaned.includes('trycloudflare.com')) {
         parsed.port = '3000';
       }
       this.baseUrl = parsed.origin;
@@ -29,14 +59,70 @@ export class ApiService {
 
   getFullUrl(path) {
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    let url = '';
     if (!this.baseUrl) {
-      // Se estiver executando no Electron (file://) ou em ambiente dev, apontar para porta 3000
-      if (typeof window !== 'undefined' && (window.location.protocol === 'file:' || !window.location.port || window.location.port === '5173')) {
-        return `http://localhost:3000${cleanPath}`;
+      if (typeof window !== 'undefined') {
+        if (window.location.protocol === 'file:' || window.location.port === '5173') {
+          url = `http://localhost:3000${cleanPath}`;
+        } else {
+          url = `${window.location.origin}${cleanPath}`;
+        }
+      } else {
+        url = cleanPath;
       }
-      return cleanPath;
+    } else {
+      url = `${this.baseUrl}${cleanPath}`;
     }
-    return `${this.baseUrl}${cleanPath}`;
+
+    const token = this.getRoomToken();
+    if (token && !url.includes('token=')) {
+      const sep = url.includes('?') ? '&' : '?';
+      url = `${url}${sep}token=${encodeURIComponent(token)}`;
+    }
+    return url;
+  }
+
+  getHeaders(customHeaders = {}) {
+    const headers = { ...customHeaders };
+    const token = this.getRoomToken();
+    if (token) {
+      headers['x-room-token'] = token;
+    }
+    return headers;
+  }
+
+  async verifyToken(token) {
+    const t = (token || this.getRoomToken() || '').trim();
+    if (!t) return false;
+    try {
+      const res = await fetch(this.getFullUrl('/api/auth/verify'), {
+        method: 'POST',
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ token: t })
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      return !!data.valid;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async fetchRoomToken() {
+    try {
+      const res = await fetch(this.getFullUrl('/api/auth/token'), {
+        headers: this.getHeaders()
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data && data.token) {
+        this.setRoomToken(data.token);
+        return data.token;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 
   async getMyIp() {
@@ -51,7 +137,9 @@ export class ApiService {
       }
     }
     try {
-      const res = await fetch(this.getFullUrl('/api/my-ip'));
+      const res = await fetch(this.getFullUrl('/api/my-ip'), {
+        headers: this.getHeaders()
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -61,7 +149,9 @@ export class ApiService {
 
   async getDb() {
     try {
-      const res = await fetch(this.getFullUrl('/api/db'));
+      const res = await fetch(this.getFullUrl('/api/db'), {
+        headers: this.getHeaders()
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -74,7 +164,7 @@ export class ApiService {
     try {
       const res = await fetch(this.getFullUrl('/api/db'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(data)
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -95,7 +185,9 @@ export class ApiService {
 
   async getRoomStatus(roomName = 'lovechat') {
     try {
-      const res = await fetch(this.getFullUrl(`/api/room/${roomName}/status`));
+      const res = await fetch(this.getFullUrl(`/api/room/${roomName}/status`), {
+        headers: this.getHeaders()
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -107,7 +199,7 @@ export class ApiService {
     try {
       const res = await fetch(this.getFullUrl('/api/room/occupy'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ profileId, peerId, room: roomName })
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -121,7 +213,7 @@ export class ApiService {
     try {
       const res = await fetch(this.getFullUrl('/api/room/heartbeat'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ profileId, peerId })
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -143,7 +235,9 @@ export class ApiService {
       }
     }
     try {
-      const res = await fetch(this.getFullUrl('/api/discover-servers'));
+      const res = await fetch(this.getFullUrl('/api/discover-servers'), {
+        headers: this.getHeaders()
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -155,7 +249,7 @@ export class ApiService {
     try {
       await fetch(this.getFullUrl('/api/room/leave'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ peerId, profileId })
       });
     } catch (err) {
@@ -166,7 +260,9 @@ export class ApiService {
   // Métodos do Álbum de Fotos Compartilhado
   async getAlbumStatus() {
     try {
-      const res = await fetch(this.getFullUrl('/api/album/status'));
+      const res = await fetch(this.getFullUrl('/api/album/status'), {
+        headers: this.getHeaders()
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -176,7 +272,9 @@ export class ApiService {
 
   async getAlbumPhotos() {
     try {
-      const res = await fetch(this.getFullUrl('/api/album/photos'));
+      const res = await fetch(this.getFullUrl('/api/album/photos'), {
+        headers: this.getHeaders()
+      });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
     } catch (err) {
@@ -188,7 +286,7 @@ export class ApiService {
     try {
       const res = await fetch(this.getFullUrl('/api/album/set-folder'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: this.getHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ folderPath })
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -202,7 +300,7 @@ export class ApiService {
     try {
       const res = await fetch(this.getFullUrl('/api/album/clear-folder'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: this.getHeaders({ 'Content-Type': 'application/json' })
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();

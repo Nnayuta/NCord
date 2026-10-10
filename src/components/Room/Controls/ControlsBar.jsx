@@ -9,12 +9,15 @@ import {
   SlidersHorizontal,
   Sparkles,
   Maximize,
-  PhoneOff
+  PhoneOff,
+  Globe
 } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
+import { useServer } from '../../../context/ServerContext';
 import { isElectron } from '../../../services/electronBridge';
 
 export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum }) {
+  const { openWebInviteModal } = useServer();
   const {
     isMicMuted,
     isVideoOff,
@@ -87,6 +90,18 @@ export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker, on
       >
         <Images size={20} />
       </button>
+
+      {/* Conectar Par via Web */}
+      {isElectron && (
+        <button
+          type="button"
+          className="btn-control"
+          onClick={openWebInviteModal}
+          title="Conectar Par via Web (Link & QR Code 🌐)"
+        >
+          <Globe size={20} />
+        </button>
+      )}
 
       {/* Mixer de Áudio */}
       <button

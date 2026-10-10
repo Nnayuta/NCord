@@ -392,7 +392,9 @@ export function WebRTCProvider({ children }) {
     setSpotlightTarget((prev) => (prev === target ? null : target));
   }, []);
 
-  // Monitorar desconexão por estado do RTCPeerConnection (ICE / ConnectionState)
+  const disconnectTimerRef = useRef(null);
+
+  // Monitorar desconexão por estado do RTCPeerConnection (ICE / ConnectionState) com tolerância a oscilações
   const attachPcLifecycle = useCallback((pc, peerId) => {
     if (!pc) return;
     const handleState = () => {
@@ -400,30 +402,71 @@ export function WebRTCProvider({ children }) {
       const iceState = pc.iceConnectionState;
       console.log(`[WebRTC] Peer "${peerId}" estado: connectionState=${cState}, iceState=${iceState}`);
       
-      if (
-        cState === 'disconnected' ||
-        cState === 'failed' ||
-        cState === 'closed' ||
-        iceState === 'disconnected' ||
-        iceState === 'failed' ||
-        iceState === 'closed'
-      ) {
+      // Se reconectou com sucesso, cancelar temporizador de queda
+      if (cState === 'connected' || iceState === 'connected' || iceState === 'completed') {
+        if (disconnectTimerRef.current) {
+          clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = null;
+        }
+        setConnectionState('connected');
+        return;
+      }
+
+      // Falha definitiva de conexão
+      const isDefinitiveFailure = cState === 'failed' || cState === 'closed' || iceState === 'failed' || iceState === 'closed';
+      // Oscilação transitória típica de redes móveis (4G/Wi-Fi)
+      const isTransientDisconnect = cState === 'disconnected' || iceState === 'disconnected';
+
+      if (isDefinitiveFailure) {
+        if (disconnectTimerRef.current) {
+          clearTimeout(disconnectTimerRef.current);
+          disconnectTimerRef.current = null;
+        }
         if (remotePeerIdRef.current === peerId || (dataConnRef.current && dataConnRef.current.peer === peerId)) {
-          console.log(`[WebRTC] Desconexão do parceiro detectada (${peerId})`);
+          console.log(`[WebRTC] Desconexão definitiva do parceiro (${peerId})`);
           setIsRemoteVideoOff(true);
           setIsRemoteMicMuted(true);
           setRemoteStream(null);
           setRemoteScreenStream(null);
           setConnectionState(mode === 'host' ? 'waiting' : 'disconnected');
         }
-      } else if (cState === 'connected' || iceState === 'connected' || iceState === 'completed') {
-        setConnectionState('connected');
+      } else if (isTransientDisconnect) {
+        // Tolerância de 8 segundos para reconexão/ICE restart antes de encerrar
+        if (!disconnectTimerRef.current) {
+          console.log(`[WebRTC] Oscilação detectada para ${peerId}. Aguardando reconexão ICE (8s de tolerância)...`);
+          disconnectTimerRef.current = setTimeout(() => {
+            disconnectTimerRef.current = null;
+            if (remotePeerIdRef.current === peerId || (dataConnRef.current && dataConnRef.current.peer === peerId)) {
+              console.log(`[WebRTC] Tempo limite de reconexão excedido para ${peerId}`);
+              setIsRemoteVideoOff(true);
+              setIsRemoteMicMuted(true);
+              setRemoteStream(null);
+              setRemoteScreenStream(null);
+              setConnectionState(mode === 'host' ? 'waiting' : 'disconnected');
+            }
+          }, 8000);
+        }
       }
     };
 
     pc.addEventListener('connectionstatechange', handleState);
     pc.addEventListener('iceconnectionstatechange', handleState);
   }, [mode]);
+
+  // Monitorar ciclo de vida da chamada de tela dedicada (Isolado da chamada principal da sala)
+  const attachScreenPcLifecycle = useCallback((pc) => {
+    if (!pc) return;
+    const handleScreenState = () => {
+      const cState = pc.connectionState;
+      const iceState = pc.iceConnectionState;
+      console.log(`[WebRTC Screen] Estado: connectionState=${cState}, iceState=${iceState}`);
+      if (cState === 'failed' || cState === 'closed') {
+        setRemoteScreenStream(null);
+      }
+    };
+    pc.addEventListener('connectionstatechange', handleScreenState);
+    pc.addEventListener('iceconnectionstatechange', handleScreenState);
+  }, []);
 
   // Parar Compartilhamento de Tela Local
   const stopScreenShare = useCallback(() => {
@@ -575,7 +618,7 @@ export function WebRTCProvider({ children }) {
 
           const applyScreenBitrate = async () => {
             try {
-              if (screenCall.peerConnection) {
+              if (screenCall.peerConnection && screenCall.peerConnection.signalingState === 'stable') {
                 const senders = screenCall.peerConnection.getSenders();
                 for (const s of senders) {
                   if (s.track && s.track.kind === 'video') {
@@ -587,12 +630,13 @@ export function WebRTCProvider({ children }) {
           };
 
           if (screenCall.peerConnection) {
-            screenCall.peerConnection.addEventListener('connectionstatechange', applyScreenBitrate);
-            screenCall.peerConnection.addEventListener('iceconnectionstatechange', applyScreenBitrate);
-            attachPcLifecycle(screenCall.peerConnection, remotePeerIdRef.current);
-            setTimeout(applyScreenBitrate, 200);
-            setTimeout(applyScreenBitrate, 800);
-            setTimeout(applyScreenBitrate, 2000);
+            attachScreenPcLifecycle(screenCall.peerConnection);
+            const onConnected = () => {
+              if (screenCall.peerConnection?.connectionState === 'connected') {
+                applyScreenBitrate();
+              }
+            };
+            screenCall.peerConnection.addEventListener('connectionstatechange', onConnected);
           }
         } catch (e) {
           console.warn('[WebRTC] Erro ao disparar chamada de tela:', e);
@@ -610,7 +654,7 @@ export function WebRTCProvider({ children }) {
       console.warn('[WebRTC] Falha ao iniciar compartilhamento de tela:', err);
       showToast('Compartilhamento de tela cancelado.', 'info');
     }
-  }, [activePreset, localScreenStream, showToast, stopScreenShare, attachPcLifecycle]);
+  }, [activePreset, localScreenStream, showToast, stopScreenShare, attachScreenPcLifecycle]);
 
   // Entrar na Sala
   const joinRoom = useCallback(async (room = 'lovechat') => {
@@ -639,21 +683,30 @@ export function WebRTCProvider({ children }) {
       let peerHost = 'localhost';
       let peerPort = 3000;
       let peerPath = '/peerjs';
+      let isSecure = false;
 
       if (!isHost && remoteIp) {
         peerHost = remoteIp;
         peerPort = 3000;
+        isSecure = false;
       } else if (typeof window !== 'undefined' && window.location.hostname && window.location.hostname !== '') {
         peerHost = window.location.hostname;
-        if (window.location.port && window.location.port !== '5173') {
-          peerPort = Number(window.location.port) || 3000;
+        isSecure = window.location.protocol === 'https:';
+        if (isSecure) {
+          peerPort = window.location.port ? Number(window.location.port) : 443;
+        } else {
+          peerPort = window.location.port && window.location.port !== '5173' ? Number(window.location.port) : 3000;
         }
       }
+
+      const roomToken = apiService.getRoomToken();
 
       const peer = new Peer(myPeerId, {
         host: peerHost,
         port: peerPort,
         path: peerPath,
+        secure: isSecure,
+        token: roomToken || undefined,
         config: ICE_CONFIG,
         debug: 1
       });
@@ -726,7 +779,7 @@ export function WebRTCProvider({ children }) {
             sdpTransform: (sdp) => transformSDP(sdp, true, activePreset)
           });
           if (call.peerConnection) {
-            attachPcLifecycle(call.peerConnection, call.peer);
+            attachScreenPcLifecycle(call.peerConnection);
           }
           call.on('stream', (incomingScreenStream) => {
             console.log('[PeerJS] Stream de tela do parceiro recebida com sucesso! Tracks:', incomingScreenStream.getTracks().map(t => `${t.kind}:${t.enabled}`));
@@ -764,6 +817,17 @@ export function WebRTCProvider({ children }) {
         if (err.type === 'peer-unavailable') {
           showToast('Anfitrião ainda não está online na sala. Aguardando...', 'info');
           setConnectionState('connecting');
+        }
+      });
+
+      peer.on('disconnected', () => {
+        console.log('[PeerJS] Sinalização desconectada temporariamente. Tentando reconectar...');
+        if (peerRef.current && !peerRef.current.destroyed) {
+          try {
+            peerRef.current.reconnect();
+          } catch (e) {
+            console.warn('[PeerJS] Erro ao reconectar sinalização:', e);
+          }
         }
       });
 
@@ -859,11 +923,18 @@ export function WebRTCProvider({ children }) {
       console.log(`[DataConnection] Canal de dados fechado para ${conn.peer}.`);
       if (dataConnRef.current && dataConnRef.current.peer === conn.peer) {
         dataConnRef.current = null;
-        setIsRemoteVideoOff(true);
-        setIsRemoteMicMuted(true);
-        setConnectionState(mode === 'host' ? 'waiting' : 'disconnected');
-        setRemoteStream(null);
-        setRemoteScreenStream(null);
+        setTimeout(() => {
+          if (!dataConnRef.current) {
+            const pcState = mainMediaCallRef.current?.peerConnection?.connectionState;
+            if (pcState !== 'connected') {
+              setIsRemoteVideoOff(true);
+              setIsRemoteMicMuted(true);
+              setConnectionState(mode === 'host' ? 'waiting' : 'disconnected');
+              setRemoteStream(null);
+              setRemoteScreenStream(null);
+            }
+          }
+        }, 3000);
       }
     });
   }

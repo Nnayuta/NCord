@@ -1,6 +1,8 @@
 import React from 'react';
-import { PanelLeftClose, Images } from 'lucide-react';
+import { PanelLeftClose, Images, Globe } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
+import { useServer } from '../../../context/ServerContext';
+import { isElectron } from '../../../services/electronBridge';
 import { VoiceChannelItem } from './VoiceChannelItem';
 import { StreamSidebarCard } from './StreamSidebarCard';
 import { VoiceMembersList } from './VoiceMembersList';
@@ -10,6 +12,7 @@ import { UserFooterBar } from './UserFooterBar';
 
 export function Sidebar({ onOpenAlbum }) {
   const { isTheaterMode, setIsTheaterMode } = useWebRTC();
+  const { openWebInviteModal } = useServer();
 
   return (
     <aside className={`sidebar ${isTheaterMode ? 'theater' : ''}`}>
@@ -31,6 +34,24 @@ export function Sidebar({ onOpenAlbum }) {
           <VoiceChannelItem />
           <StreamSidebarCard />
           <VoiceMembersList />
+
+          {/* Botão de Conectar Par via Web */}
+          {isElectron && (
+            <button
+              type="button"
+              className="sidebar-channel-btn sidebar-web-invite-action"
+              onClick={openWebInviteModal}
+              title="Iniciar Versão Web e Convidar o Par"
+            >
+              <div className="sidebar-channel-icon web-icon">
+                <Globe size={16} />
+              </div>
+              <div className="sidebar-channel-text">
+                <span className="sidebar-channel-title">Conectar via Web</span>
+                <span className="sidebar-channel-sub">Link & QR Code 🌐</span>
+              </div>
+            </button>
+          )}
 
           {/* Botão de Acesso Rápido ao Álbum */}
           <button
