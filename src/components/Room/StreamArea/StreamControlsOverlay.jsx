@@ -1,10 +1,9 @@
 import React from 'react';
-import { Volume2, VolumeX, Scan, SlidersHorizontal, PanelLeftClose, Maximize, ScreenShare } from 'lucide-react';
+import { Volume2, VolumeX, Scan, PanelLeftClose, Maximize, ScreenShare } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 import { toggleFullscreen } from '../../../services/fullscreen';
 
 export function StreamControlsOverlay({
-  onOpenMixer,
   onOpenScreenPicker,
   cardElementId = 'screen-share-card',
   isLocalStream = false
@@ -81,17 +80,7 @@ export function StreamControlsOverlay({
         <Scan size={16} />
       </button>
 
-      {/* Mixer de Áudio */}
-      {onOpenMixer && (
-        <button
-          type="button"
-          className="btn-stream-action"
-          onClick={onOpenMixer}
-          title="Mixer de Áudio da Transmissão"
-        >
-          <SlidersHorizontal size={16} />
-        </button>
-      )}
+
 
       {/* Modo Teatro */}
       <button

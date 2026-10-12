@@ -60,8 +60,11 @@ class AudioWorkletManager {
   }
 
   // sourceId identifica a fonte (PID); fontes diferentes são somadas no worklet em vez de intercaladas
-  feedPCM(arrayBuffer, sourceId = 'default') {
+  feedPCM(arrayBuffer, sourceId = 'main') {
     if (!this.workletNode || !arrayBuffer) return;
+    if (this.audioCtx && this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
     try {
       this.workletNode.port.postMessage({
         type: 'pcm',
@@ -86,8 +89,15 @@ class AudioWorkletManager {
   }
 
   getMixedAudioTrack() {
+    if (this.audioCtx && this.audioCtx.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
     if (this.destination && this.destination.stream) {
-      return this.destination.stream.getAudioTracks()[0] || null;
+      const track = this.destination.stream.getAudioTracks()[0] || null;
+      if (track) {
+        track.enabled = true;
+      }
+      return track;
     }
     return null;
   }

@@ -7,7 +7,7 @@ import { VideoCard } from './VideoCard';
 import { FloatingParticipantAvatars } from './FloatingParticipantAvatars';
 import { DualScreenSwitcher } from './DualScreenSwitcher';
 
-export function VideoGrid({ onOpenMixer, onOpenScreenPicker, onOpenCamSettings }) {
+export function VideoGrid({ onOpenScreenPicker, onOpenCamSettings }) {
   const {
     isScreenSharing,
     isLocalScreenSharing,
@@ -126,7 +126,6 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker, onOpenCamSettings }
               stream={remoteScreenStream}
               isLocal={false}
               ownerLabel={`Tela de ${otherProfile.name || 'Parceiro'}`}
-              onOpenMixer={onOpenMixer}
               onOpenScreenPicker={onOpenScreenPicker}
               cardId="screen-share-remote"
             />
@@ -134,7 +133,6 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker, onOpenCamSettings }
               stream={localScreenStream}
               isLocal={true}
               ownerLabel="Sua Transmissão"
-              onOpenMixer={onOpenMixer}
               onOpenScreenPicker={onOpenScreenPicker}
               cardId="screen-share-local"
             />
@@ -147,7 +145,6 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker, onOpenCamSettings }
             stream={remoteScreenStream}
             isLocal={false}
             ownerLabel={`Tela de ${otherProfile.name || 'Parceiro'}`}
-            onOpenMixer={onOpenMixer}
             onOpenScreenPicker={onOpenScreenPicker}
             cardId="screen-share-remote"
           />
@@ -159,7 +156,6 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker, onOpenCamSettings }
             stream={localScreenStream}
             isLocal={true}
             ownerLabel="Sua Transmissão"
-            onOpenMixer={onOpenMixer}
             onOpenScreenPicker={onOpenScreenPicker}
             cardId="screen-share-local"
           />

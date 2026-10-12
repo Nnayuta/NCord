@@ -1,44 +1,27 @@
 import React from 'react';
-import { PanelLeftOpen } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 import { VideoGrid } from './VideoGrid';
-import { ControlsBar } from '../Controls/ControlsBar';
 import { RemoteAudioPlayer } from './RemoteAudioPlayer';
+import { FloatingControlsPill } from '../Controls/FloatingControlsPill';
 
-export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum, onOpenCamSettings }) {
-  const { isTheaterMode, setIsTheaterMode, spotlightTarget } = useWebRTC();
+export function StreamArea({ onOpenScreenPicker, onOpenSettings }) {
+  const { isTheaterMode, spotlightTarget } = useWebRTC();
 
   return (
     <main className={`stream-area ${spotlightTarget ? 'has-spotlight' : ''}`}>
       {/* Reprodutor de áudio de voz do parceiro (independente de câmera) */}
       <RemoteAudioPlayer />
 
-      {/* Botão flutuante para reabrir a sidebar no Modo Teatro */}
-      {isTheaterMode && (
-        <button
-          type="button"
-          className="btn-floating-expand-sidebar"
-          onClick={() => setIsTheaterMode(false)}
-          title="Expandir Barra Lateral (Tecla T)"
-        >
-          <PanelLeftOpen size={16} />
-          <span>Mostrar Barra Lateral</span>
-        </button>
-      )}
-
+      {/* Grade de Vídeo e Transmissões (Ocupa 100% da tela) */}
       <VideoGrid
-        onOpenMixer={onOpenMixer}
         onOpenScreenPicker={onOpenScreenPicker}
-        onOpenCamSettings={onOpenCamSettings}
+        onOpenCamSettings={() => onOpenSettings && onOpenSettings('video')}
       />
 
-      <ControlsBar
-        onOpenMixer={onOpenMixer}
-        onOpenQuality={onOpenQuality}
-        onOpenScreenPicker={onOpenScreenPicker}
-        onOpenAlbum={onOpenAlbum}
-        onOpenCamSettings={onOpenCamSettings}
-      />
+      {/* Pílula de Controles Flutuante apenas quando a Barra Lateral estiver recolhida (Modo Teatro ou Mobile) */}
+      {isTheaterMode && (
+        <FloatingControlsPill onOpenScreenPicker={onOpenScreenPicker} />
+      )}
     </main>
   );
 }

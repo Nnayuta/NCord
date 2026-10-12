@@ -32,18 +32,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   stopProcessAudio: () => ipcRenderer.invoke('stop-process-audio'),
   
-  // Mixer de Áudio da Transmissão (WASAPI Multi-Process)
-  getAudioMixerSources: () => ipcRenderer.invoke('get-audio-mixer-sources'),
-  startMixerProcessAudio: (pid, includeProcessTree) => ipcRenderer.invoke('start-mixer-process-audio', { pid, includeProcessTree }),
-  stopMixerProcessAudio: (pid) => ipcRenderer.invoke('stop-mixer-process-audio', pid),
-  onMixerProcessAudioChunk: (callback) => {
-    ipcRenderer.removeAllListeners('mixer-process-audio-chunk');
-    ipcRenderer.on('mixer-process-audio-chunk', (_, data) => callback(data));
-  },
-  offMixerProcessAudioChunk: () => {
-    ipcRenderer.removeAllListeners('mixer-process-audio-chunk');
-  },
-  
   // Álbum de Fotos Compartilhado
   selectAlbumFolder: () => ipcRenderer.invoke('select-album-folder'),
   getAlbumFolder: () => ipcRenderer.invoke('get-album-folder'),

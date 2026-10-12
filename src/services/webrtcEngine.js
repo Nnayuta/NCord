@@ -10,7 +10,7 @@ export const QUALITY_PRESETS = {
     description: '14 Mbps • Até 4K 60 FPS • Alta fidelidade sem bloqueios',
     screenBitrate: 14_000_000,
     mediaBitrate: 3_500_000,
-    degradationPreference: 'maintain-resolution',
+    degradationPreference: 'balanced',
     contentHint: 'detail',
     maxFps: 60,
     sdpScreenKbps: 14000,
@@ -23,7 +23,7 @@ export const QUALITY_PRESETS = {
     description: '10 Mbps • 1080p • Foco em detalhes finos para filmes e animes',
     screenBitrate: 10_000_000,
     mediaBitrate: 2_500_000,
-    degradationPreference: 'maintain-resolution',
+    degradationPreference: 'balanced',
     contentHint: 'detail',
     maxFps: 60,
     sdpScreenKbps: 10000,
@@ -36,7 +36,7 @@ export const QUALITY_PRESETS = {
     description: '12 Mbps • 60 FPS • Prioriza movimentação rápida e responsiva',
     screenBitrate: 12_000_000,
     mediaBitrate: 2_500_000,
-    degradationPreference: 'maintain-resolution',
+    degradationPreference: 'balanced',
     contentHint: 'motion',
     maxFps: 60,
     sdpScreenKbps: 12000,
@@ -72,8 +72,45 @@ export const ICE_CONFIG = {
       credential: 'openrelayproject'
     }
   ],
-  iceCandidatePoolSize: 10
+  iceCandidatePoolSize: 2
 };
+
+/**
+ * Otimização de candidatos ICE / mDNS:
+ * Evita o erro interno do Chromium [services\network\p2p\socket_manager.cc:145] errorcode: -105.
+ * Dispositivos remotos (como celulares e navegadores) geram hostnames mDNS ofuscados (<uuid>.local)
+ * que não são resolvíveis fora da mesma rede física ou por VPN/túnel, poluindo o terminal
+ * com erros desnecessários de DNS antes de conectar pelos IPs e STUN/TURN válidos.
+ */
+if (typeof window !== 'undefined' && window.RTCPeerConnection) {
+  const origAddIceCandidate = window.RTCPeerConnection.prototype.addIceCandidate;
+  window.RTCPeerConnection.prototype.addIceCandidate = function (candidate, ...args) {
+    if (candidate) {
+      const candStr = typeof candidate === 'string' ? candidate : candidate.candidate;
+      if (typeof candStr === 'string' && candStr.includes('.local')) {
+        return Promise.resolve();
+      }
+    }
+    return origAddIceCandidate.apply(this, [candidate, ...args]);
+  };
+
+  const origSetRemoteDescription = window.RTCPeerConnection.prototype.setRemoteDescription;
+  window.RTCPeerConnection.prototype.setRemoteDescription = function (description, ...args) {
+    if (description && typeof description.sdp === 'string' && description.sdp.includes('.local')) {
+      const cleanedSdp = description.sdp
+        .split('\r\n')
+        .filter((line) => !(line.startsWith('a=candidate:') && line.includes('.local')))
+        .join('\r\n');
+      
+      const newDesc = typeof RTCSessionDescription !== 'undefined'
+        ? new RTCSessionDescription({ type: description.type, sdp: cleanedSdp })
+        : { type: description.type, sdp: cleanedSdp };
+        
+      return origSetRemoteDescription.apply(this, [newDesc, ...args]);
+    }
+    return origSetRemoteDescription.apply(this, [description, ...args]);
+  };
+}
 
 /**
  * Cria uma track de vídeo silenciosa (preta) para manter o canal WebRTC ativo sem usar câmera
@@ -120,7 +157,7 @@ export function createDummyAudioTrack() {
 }
 
 /**
- * Aplica parâmetros de bitrate, FPS e bloqueio de resolução ao RTCRtpSender
+ * Aplica parâmetros de bitrate, FPS e adaptação ao RTCRtpSender
  */
 export async function applySenderParameters(sender, preset = QUALITY_PRESETS.ultra, isScreen = false) {
   if (!sender || !sender.setParameters || !sender.getParameters) return;
@@ -135,7 +172,6 @@ export async function applySenderParameters(sender, preset = QUALITY_PRESETS.ult
     for (const encoding of params.encodings) {
       encoding.maxBitrate = maxBitrate;
       if (preset.maxFps) encoding.maxFramerate = preset.maxFps;
-      encoding.scaleResolutionDownBy = 1.0;
     }
     if (preset.degradationPreference) {
       params.degradationPreference = preset.degradationPreference;
@@ -156,40 +192,80 @@ export function transformSDP(sdp, isScreen = false, preset = QUALITY_PRESETS.ult
   try {
     const lines = sdp.split('\r\n');
     const newLines = [];
-    const bitrateKbps = isScreen ? (preset.sdpScreenKbps || 35000) : (preset.sdpMediaKbps || 8000);
+    const bitrateKbps = isScreen ? (preset.sdpScreenKbps || 14000) : (preset.sdpMediaKbps || 3500);
+
+    // Identificar dinamicamente os payload types de Opus (áudio)
+    const opusPayloadTypes = new Set();
+    for (const l of lines) {
+      const match = l.match(/^a=rtpmap:(\d+)\s+opus\/48000/i);
+      if (match) opusPayloadTypes.add(match[1]);
+    }
+    if (opusPayloadTypes.size === 0) {
+      opusPayloadTypes.add('111');
+    }
+
+    // Identificar dinamicamente os payload types de Vídeo (H264, VP8, VP9, AV1)
+    const videoPayloadTypes = new Set();
+    for (const l of lines) {
+      const match = l.match(/^a=rtpmap:(\d+)\s+(H264|VP8|VP9|AV1)\/90000/i);
+      if (match) videoPayloadTypes.add(match[1]);
+    }
+
+    let inVideoSection = false;
+    let inAudioSection = false;
+    let videoBandwidthInserted = false;
+    let audioBandwidthInserted = false;
 
     for (let i = 0; i < lines.length; i++) {
       let line = lines[i];
 
-      // Otimização do Codec de Áudio Opus para Broadcast Stereo 48kHz / 128 kbps estável
-      if (line.includes('a=fmtp:111') || line.includes('a=fmtp:96') || (line.startsWith('a=fmtp:') && line.includes('minptime='))) {
-        if (!line.includes('stereo=1')) {
-          line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;useinbandfec=1';
-        }
+      if (line.startsWith('m=video')) {
+        inVideoSection = true;
+        inAudioSection = false;
+        videoBandwidthInserted = false;
+      } else if (line.startsWith('m=audio')) {
+        inAudioSection = true;
+        inVideoSection = false;
+        audioBandwidthInserted = false;
+      } else if (line.startsWith('m=')) {
+        inVideoSection = false;
+        inAudioSection = false;
       }
 
-      // Otimização de Codecs de Vídeo (H264 / VP8 / VP9) - piso suave para evitar quedas em conexões 4G
-      if (line.startsWith('a=fmtp:') && (line.includes('level-asymmetry-allowed') || line.includes('packetization-mode') || line.includes('profile-level-id'))) {
-        if (!line.includes('x-google-min-bitrate')) {
-          const minKbps = 200;
-          const startKbps = isScreen ? 2000 : 800;
-          const maxKbps = bitrateKbps;
-          line += `;x-google-min-bitrate=${minKbps};x-google-start-bitrate=${startKbps};x-google-max-bitrate=${maxKbps}`;
+      // Otimização do Codec de Áudio Opus para Broadcast Stereo 48kHz / 128 kbps estável
+      if (line.startsWith('a=fmtp:')) {
+        const ptMatch = line.match(/^a=fmtp:(\d+)/);
+        const pt = ptMatch ? ptMatch[1] : null;
+
+        if (pt && opusPayloadTypes.has(pt)) {
+          if (!line.includes('stereo=1')) {
+            line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;useinbandfec=1';
+          }
+        } else if (pt && (videoPayloadTypes.has(pt) || inVideoSection)) {
+          // Apenas adiciona min/start/max bitrate aos codecs de vídeo, nunca misturar com áudio
+          if (!line.includes('x-google-min-bitrate')) {
+            const minKbps = 300;
+            const startKbps = isScreen ? 1500 : 800;
+            const maxKbps = bitrateKbps;
+            line += `;x-google-min-bitrate=${minKbps};x-google-start-bitrate=${startKbps};x-google-max-bitrate=${maxKbps}`;
+          }
         }
       }
 
       newLines.push(line);
 
-      // Injetar banda de vídeo b=AS e b=TIAS
-      if (line.startsWith('m=video')) {
+      // Injetar banda RFC 4566 após c= do bloco m=video
+      if (inVideoSection && !videoBandwidthInserted && line.startsWith('c=')) {
         newLines.push(`b=AS:${bitrateKbps}`);
         newLines.push(`b=TIAS:${bitrateKbps * 1000}`);
+        videoBandwidthInserted = true;
       }
 
-      // Injetar banda de áudio estéreo máxima b=AS:128
-      if (line.startsWith('m=audio')) {
+      // Injetar banda de áudio após c= do bloco m=audio
+      if (inAudioSection && !audioBandwidthInserted && line.startsWith('c=')) {
         newLines.push(`b=AS:128`);
         newLines.push(`b=TIAS:128000`);
+        audioBandwidthInserted = true;
       }
     }
 

@@ -44,6 +44,7 @@ export function WebRTCProvider({ children }) {
 
   const [isMicMuted, setIsMicMuted] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
+  const [isDeafened, setIsDeafened] = useState(false);
   const [isRemoteMicMuted, setIsRemoteMicMuted] = useState(true);
   const [isRemoteVideoOff, setIsRemoteVideoOff] = useState(true);
 
@@ -368,6 +369,22 @@ export function WebRTCProvider({ children }) {
       showToast(errorMsg, 'error');
     }
   }, [isMicMuted, isVideoOff, showToast, updateLocalAudioDetector]);
+
+  // Alternar Ensurdecer / Deafen (Muta todo o áudio de saída recebido e o mic)
+  const toggleDeafen = useCallback(() => {
+    setIsDeafened((prev) => {
+      const next = !prev;
+      if (next) {
+        if (!isMicMuted) {
+          toggleMic();
+        }
+        showToast('Áudio ensurdecido (Silêncio total) 🎧', 'info');
+      } else {
+        showToast('Áudio restaurado 🔊', 'info');
+      }
+      return next;
+    });
+  }, [isMicMuted, toggleMic, showToast]);
 
   // Alternar Câmera
   const toggleVideo = useCallback(async () => {
@@ -831,9 +848,6 @@ export function WebRTCProvider({ children }) {
       if (localScreenStream) {
         try {
           const oldVideoTrack = localScreenStream.getVideoTracks()[0];
-          if (oldVideoTrack) {
-            try { oldVideoTrack.stop(); } catch (e) {}
-          }
 
           const combinedTracks = [videoTrack, audioTrackToSend].filter(Boolean);
           const updatedScreenStream = new MediaStream(combinedTracks);
@@ -863,6 +877,12 @@ export function WebRTCProvider({ children }) {
               }
             }
           }
+
+          if (oldVideoTrack) {
+            oldVideoTrack.onended = null;
+            try { oldVideoTrack.stop(); } catch (e) {}
+          }
+
           showToast('Fonte de transmissão alterada com sucesso! 🔄', 'success');
         } catch (inFlightErr) {
           console.warn('[WebRTC] Erro durante troca dinâmica de tela:', inFlightErr);
@@ -1040,8 +1060,11 @@ export function WebRTCProvider({ children }) {
         remotePeerIdRef.current = call.peer;
 
         if (isScreenCall) {
-          // Responder com dummy stream para receber o fluxo de tela e áudio com SDP em alta fidelidade
-          const dummyAnswerStream = new MediaStream([createDummyAudioTrack()].filter(Boolean));
+          // Responder com dummy stream contendo vídeo e áudio para negociar ambos os transceivers simetricamente
+          const dummyAnswerStream = new MediaStream([
+            createDummyVideoTrack(),
+            createDummyAudioTrack()
+          ].filter(Boolean));
           call.answer(dummyAnswerStream, {
             sdpTransform: (sdp) => transformSDP(sdp, true, activePreset)
           });
@@ -1050,7 +1073,15 @@ export function WebRTCProvider({ children }) {
           }
           call.on('stream', (incomingScreenStream) => {
             console.log('[PeerJS] Stream de tela do parceiro recebida com sucesso! Tracks:', incomingScreenStream.getTracks().map(t => `${t.kind}:${t.enabled}`));
-            setRemoteScreenStream(incomingScreenStream);
+            setRemoteScreenStream(new MediaStream(incomingScreenStream.getTracks()));
+
+            incomingScreenStream.onaddtrack = () => {
+              console.log('[PeerJS] Nova track adicionada à stream de tela remota:', incomingScreenStream.getTracks().map(t => `${t.kind}:${t.enabled}`));
+              setRemoteScreenStream(new MediaStream(incomingScreenStream.getTracks()));
+            };
+            incomingScreenStream.onremovetrack = () => {
+              setRemoteScreenStream(new MediaStream(incomingScreenStream.getTracks()));
+            };
           });
           call.on('close', () => {
             setRemoteScreenStream(null);
@@ -1347,7 +1378,9 @@ export function WebRTCProvider({ children }) {
         setScreenFitMode,
         setCameraFitMode,
         setScreenVolume,
-        setIsScreenMuted
+        setIsScreenMuted,
+        isDeafened,
+        toggleDeafen
       }}
     >
       {children}

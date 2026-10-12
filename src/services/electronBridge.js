@@ -116,53 +116,6 @@ export const electronBridge = {
     }
   },
 
-  // Mixer de Áudio da Transmissão (WASAPI Multi-Process)
-  getAudioMixerSources: async () => {
-    if (!isElectron || !window.electronAPI?.getAudioMixerSources) return [];
-    try {
-      const res = await window.electronAPI.getAudioMixerSources();
-      if (Array.isArray(res)) return res;
-      if (res && Array.isArray(res.apps)) return res.apps;
-      return [];
-    } catch (e) {
-      console.warn('[ElectronBridge] Falha ao obter fontes do mixer:', e);
-      return [];
-    }
-  },
-  startMixerProcessAudio: async (pid, includeProcessTree) => {
-    if (!isElectron || !window.electronAPI?.startMixerProcessAudio) return { success: false };
-    try {
-      return await window.electronAPI.startMixerProcessAudio(pid, includeProcessTree);
-    } catch (e) {
-      console.warn('[ElectronBridge] Falha ao iniciar mixer áudio:', e);
-      return { success: false, error: e.message };
-    }
-  },
-  stopMixerProcessAudio: async (pid) => {
-    if (!isElectron || !window.electronAPI?.stopMixerProcessAudio) return;
-    try {
-      await window.electronAPI.stopMixerProcessAudio(pid);
-    } catch (e) {
-      console.warn('[ElectronBridge] Falha ao parar mixer áudio:', e);
-    }
-  },
-  onMixerProcessAudioChunk: (callback) => {
-    if (!isElectron || !window.electronAPI?.onMixerProcessAudioChunk) return;
-    try {
-      window.electronAPI.onMixerProcessAudioChunk(callback);
-    } catch (e) {
-      console.warn('[ElectronBridge] Falha onMixerProcessAudioChunk:', e);
-    }
-  },
-  offMixerProcessAudioChunk: () => {
-    if (!isElectron || !window.electronAPI?.offMixerProcessAudioChunk) return;
-    try {
-      window.electronAPI.offMixerProcessAudioChunk();
-    } catch (e) {
-      console.warn('[ElectronBridge] Falha offMixerProcessAudioChunk:', e);
-    }
-  },
-
   // Álbum de Fotos Compartilhado
   selectAlbumFolder: async () => {
     if (!isElectron || !window.electronAPI?.selectAlbumFolder) return { canceled: true };

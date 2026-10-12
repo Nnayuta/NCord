@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import {
   Mic,
   MicOff,
@@ -7,7 +7,6 @@ import {
   Camera,
   Monitor,
   Images,
-  SlidersHorizontal,
   Sparkles,
   Maximize,
   PhoneOff,
@@ -20,7 +19,7 @@ import { useWebRTC } from '../../../context/WebRTCContext';
 import { useServer } from '../../../context/ServerContext';
 import { isElectron } from '../../../services/electronBridge';
 
-export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum, onOpenCamSettings }) {
+export function ControlsBar({ onOpenQuality, onOpenScreenPicker, onOpenAlbum, onOpenCamSettings }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const closeMore = () => setMoreOpen(false);
   // Fecha o menu 'Mais' depois de acionar uma ação secundária
@@ -146,17 +145,6 @@ export function ControlsBar({ onOpenMixer, onOpenQuality, onOpenScreenPicker, on
           </button>
         )}
 
-        {/* Mixer de Áudio */}
-        <button
-          type="button"
-          className="btn-control"
-          onClick={act(onOpenMixer)}
-          title="Mixer de Áudio da Transmissão"
-          aria-label="Mixer de Áudio"
-        >
-          <SlidersHorizontal size={20} />
-          <span className="btn-control-label">Mixer</span>
-        </button>
 
         {/* Ajustes de Qualidade */}
         <button

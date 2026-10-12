@@ -1,11 +1,10 @@
-import React, { useState, useRef } from 'react';
-import { Heart, Mic, MicOff, Video, VideoOff, Edit3, Tv, Camera } from 'lucide-react';
+import React from 'react';
+import { Heart, Mic, MicOff, Video, VideoOff, Volume2, Tv, Sparkles } from 'lucide-react';
 import { useProfiles } from '../../../context/ProfileContext';
 import { useWebRTC } from '../../../context/WebRTCContext';
-import { EditProfileModal } from '../../Common/EditProfileModal';
 
-export function VoiceMembersList() {
-  const { myProfile, otherProfile, activeProfileId, updateProfileAvatar } = useProfiles();
+export function VoiceMembersList({ onOpenSettings }) {
+  const { myProfile, otherProfile } = useProfiles();
   const {
     isMicMuted,
     isVideoOff,
@@ -15,113 +14,103 @@ export function VoiceMembersList() {
     isRemoteSpeaking,
     connectionState,
     isLocalScreenSharing,
-    isRemoteScreenSharing
+    isRemoteScreenSharing,
+    toggleSpotlight,
+    setDualScreenViewMode
   } = useWebRTC();
-
-  const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const fileInputRef = useRef(null);
 
   const isRemoteOnline = connectionState === 'connected';
 
-  const handleAvatarClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (file) {
-      updateProfileAvatar(activeProfileId, file);
+  const handleWatchRemote = () => {
+    if (isRemoteScreenSharing) {
+      setDualScreenViewMode('remote');
+    } else {
+      toggleSpotlight('remote-camera');
     }
   };
 
   return (
-    <div className="voice-members-list">
-      {/* Membro Local (Você) */}
-      <div className="member-item">
-        <div className="member-info">
-          <div
-            className={`member-avatar-wrapper ${isLocalSpeaking ? 'speaking' : ''} member-avatar-editable`}
-            onClick={handleAvatarClick}
-            title="Clique para trocar sua foto de perfil"
-            style={{ cursor: 'pointer' }}
-          >
+    <div className="voice-channel-section">
+      <div className="voice-channel-header">
+        <Volume2 size={15} color="#4ade80" />
+        <span className="voice-channel-title">SALA DE VOZ • CANAL PRIVADO</span>
+      </div>
+
+      <div className="voice-members-tree">
+        {/* Membro Local (Você) */}
+        <div
+          className={`member-tree-item ${isLocalSpeaking ? 'speaking' : ''}`}
+          onClick={() => onOpenSettings && onOpenSettings('profile')}
+          title="Clique para personalizar seu perfil"
+          style={{ cursor: 'pointer' }}
+        >
+          <div className="member-avatar-wrapper">
             {myProfile.avatar ? (
               <img src={myProfile.avatar} className="sidebar-avatar-img" alt="Você" />
             ) : (
-              <div className="sidebar-default-avatar"><Heart size={16} /></div>
+              <div className="sidebar-default-avatar"><Heart size={14} /></div>
             )}
-            <div className="sidebar-avatar-overlay">
-              <Camera size={12} />
-            </div>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*"
-              style={{ display: 'none' }}
-              onChange={handleFileChange}
-            />
+            <span className={`member-voice-indicator ${isLocalSpeaking ? 'active' : ''}`} />
           </div>
-          <span className="editable-name" onClick={() => setIsEditingProfile(true)} style={{ cursor: 'pointer' }}>
-            {myProfile.name || 'Você'}
-          </span>
+
+          <span className="member-name-label">{myProfile.name || 'Você'}</span>
 
           {isLocalScreenSharing && (
-            <span className="member-live-badge">
-              <Tv size={12} /> AO VIVO
+            <span className="member-live-badge" title="Você está transmitindo tela">
+              <Tv size={11} /> AO VIVO
             </span>
           )}
 
-          <button
-            type="button"
-            className="btn-edit-name"
-            onClick={() => setIsEditingProfile(true)}
-            title="Personalizar meu perfil (Foto e Apelido)"
-          >
-            <Edit3 size={13} />
-          </button>
+          <div className="member-status-icons">
+            {isMicMuted && <MicOff size={13} className="status-muted" />}
+            {isVideoOff && <VideoOff size={13} className="status-muted" />}
+          </div>
         </div>
 
-        <div className="member-status-icons">
-          <span>{isMicMuted ? <MicOff size={14} className="muted" /> : <Mic size={14} />}</span>
-          <span>{isVideoOff ? <VideoOff size={14} className="muted" /> : <Video size={14} />}</span>
-        </div>
-      </div>
-
-      {/* Membro Remoto (Parceiro) */}
-      <div className="member-item">
-        <div className="member-info">
-          <div className={`member-avatar-wrapper ${isRemoteSpeaking ? 'speaking' : ''}`}>
+        {/* Membro Remoto (Parceiro) */}
+        <div
+          className={`member-tree-item ${isRemoteSpeaking ? 'speaking' : ''} ${!isRemoteOnline ? 'offline' : ''}`}
+          onClick={handleWatchRemote}
+          title={isRemoteScreenSharing ? 'Clique para assistir à transmissão' : 'Clique para focar na câmera do parceiro'}
+          style={{ cursor: 'pointer' }}
+        >
+          <div className="member-avatar-wrapper">
             {otherProfile.avatar ? (
               <img src={otherProfile.avatar} className="sidebar-avatar-img" alt="Parceiro" />
             ) : (
-              <div className="sidebar-default-avatar"><Heart size={16} /></div>
+              <div className="sidebar-default-avatar"><Heart size={14} /></div>
+            )}
+            {isRemoteOnline && (
+              <span className={`member-voice-indicator ${isRemoteSpeaking ? 'active' : ''}`} />
             )}
           </div>
-          <span>{isRemoteOnline ? (otherProfile.name || 'Parceiro') : 'Aguardando Parceiro...'}</span>
+
+          <span className="member-name-label">
+            {isRemoteOnline ? (otherProfile.name || 'Parceiro') : 'Aguardando Parceiro...'}
+          </span>
 
           {isRemoteScreenSharing && (
-            <span className="member-live-badge">
-              <Tv size={12} /> AO VIVO
-            </span>
+            <button
+              type="button"
+              className="member-live-badge live-clickable"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleWatchRemote();
+              }}
+              title="Clique para assistir à transmissão"
+            >
+              <Tv size={11} /> ASSISTIR
+            </button>
+          )}
+
+          {isRemoteOnline && (
+            <div className="member-status-icons">
+              {isRemoteMicMuted && <MicOff size={13} className="status-muted" />}
+              {isRemoteVideoOff && <VideoOff size={13} className="status-muted" />}
+            </div>
           )}
         </div>
-
-        {isRemoteOnline && (
-          <div className="member-status-icons">
-            <span>{isRemoteMicMuted ? <MicOff size={14} className="muted" /> : <Mic size={14} />}</span>
-            <span>{isRemoteVideoOff ? <VideoOff size={14} className="muted" /> : <Video size={14} />}</span>
-          </div>
-        )}
       </div>
-
-      {/* Modal de Edição Completa de Perfil */}
-      <EditProfileModal
-        isOpen={isEditingProfile}
-        onClose={() => setIsEditingProfile(false)}
-        profileId={activeProfileId}
-      />
     </div>
   );
 }

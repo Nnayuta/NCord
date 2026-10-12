@@ -1,45 +1,37 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './Sidebar/Sidebar';
 import { StreamArea } from './StreamArea/StreamArea';
-import { AudioMixerModal } from '../Modals/AudioMixerModal';
-import { QualityPresetsModal } from '../Modals/QualityPresetsModal';
+import { SettingsModal } from '../Modals/SettingsModal';
 import { ScreenPickerModal } from '../Modals/ScreenPickerModal';
 import { PhotoAlbumModal } from '../Modals/PhotoAlbumModal';
-import { CameraSettingsModal } from '../Modals/CameraSettingsModal';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { electronBridge, isElectron } from '../../services/electronBridge';
 import { useWebRTC } from '../../context/WebRTCContext';
 
 export function RoomLayout() {
   const { isTheaterMode, setIsTheaterMode } = useWebRTC();
-  const [isMixerOpen, setIsMixerOpen] = useState(false);
-  const [isQualityOpen, setIsQualityOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('profile');
   const [isScreenPickerOpen, setIsScreenPickerOpen] = useState(false);
   const [isAlbumOpen, setIsAlbumOpen] = useState(false);
-  const [isCameraSettingsOpen, setIsCameraSettingsOpen] = useState(false);
 
   const closeAllModals = useCallback(() => {
-    setIsMixerOpen(false);
-    setIsQualityOpen(false);
+    setIsSettingsOpen(false);
     setIsScreenPickerOpen(false);
     setIsAlbumOpen(false);
-    setIsCameraSettingsOpen(false);
   }, []);
 
-  const handleOpenMixer = useCallback(() => setIsMixerOpen(true), []);
-  const handleCloseMixer = useCallback(() => setIsMixerOpen(false), []);
-
-  const handleOpenQuality = useCallback(() => setIsQualityOpen(true), []);
-  const handleCloseQuality = useCallback(() => setIsQualityOpen(false), []);
+  const handleOpenSettings = useCallback((tab = 'profile') => {
+    setSettingsTab(tab);
+    setIsSettingsOpen(true);
+  }, []);
+  const handleCloseSettings = useCallback(() => setIsSettingsOpen(false), []);
 
   const handleOpenScreenPicker = useCallback(() => setIsScreenPickerOpen(true), []);
   const handleCloseScreenPicker = useCallback(() => setIsScreenPickerOpen(false), []);
 
   const handleOpenAlbum = useCallback(() => setIsAlbumOpen(true), []);
   const handleCloseAlbum = useCallback(() => setIsAlbumOpen(false), []);
-
-  const handleOpenCamSettings = useCallback(() => setIsCameraSettingsOpen(true), []);
-  const handleCloseCamSettings = useCallback(() => setIsCameraSettingsOpen(false), []);
 
   useKeyboardShortcuts({ closeAllModals });
 
@@ -61,37 +53,38 @@ export function RoomLayout() {
           aria-label="Fechar barra lateral"
         />
       )}
-      <Sidebar onOpenAlbum={handleOpenAlbum} />
-      <StreamArea
-        onOpenMixer={handleOpenMixer}
-        onOpenQuality={handleOpenQuality}
-        onOpenScreenPicker={handleOpenScreenPicker}
+
+      {/* Nova Sidebar Redesenhada com Doca de Voz e Barra de Usuário */}
+      <Sidebar
         onOpenAlbum={handleOpenAlbum}
-        onOpenCamSettings={handleOpenCamSettings}
+        onOpenScreenPicker={handleOpenScreenPicker}
+        onOpenSettings={handleOpenSettings}
       />
 
-      {/* Modais */}
-      <AudioMixerModal
-        isOpen={isMixerOpen}
-        onClose={handleCloseMixer}
+      {/* Área de Transmissão 100% Imersiva */}
+      <StreamArea
+        onOpenScreenPicker={handleOpenScreenPicker}
+        onOpenSettings={handleOpenSettings}
       />
-      <QualityPresetsModal
-        isOpen={isQualityOpen}
-        onClose={handleCloseQuality}
+
+      {/* Central Unificada de Configurações */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={handleCloseSettings}
+        initialTab={settingsTab}
       />
+
+      {/* Modal de Escolha de Tela / Janela */}
       <ScreenPickerModal
         isOpen={isScreenPickerOpen}
         onClose={handleCloseScreenPicker}
       />
+
+      {/* Modal do Álbum de Fotos */}
       <PhotoAlbumModal
         isOpen={isAlbumOpen}
         onClose={handleCloseAlbum}
       />
-      <CameraSettingsModal
-        isOpen={isCameraSettingsOpen}
-        onClose={handleCloseCamSettings}
-      />
     </div>
   );
 }
-

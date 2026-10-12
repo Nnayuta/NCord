@@ -5,13 +5,15 @@ const http = require('http');
 const { exec } = require('child_process');
 const { setupAutoUpdaterIPC, checkForUpdates } = require('./updater-main');
 
+// Otimizações de rede WebRTC: desativar anonimização mDNS para evitar erros de resolução .local e conectar diretamente em LAN
+app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
+
 // ==========================================
 // CAPTURA EXCLUSIVA DE ÁUDIO POR JANELA (WASAPI PROCESS LOOPBACK)
 // ==========================================
 let LoopbackCapture = null;
 let GetWindowThreadProcessId = null;
 let activeProcessCapture = null;
-const mixerActiveCaptures = new Map(); // pid -> LoopbackCapture instance
 
 try {
   const loopbackModule = require('loopback-capture');
@@ -45,15 +47,6 @@ function getPidFromHwnd(hwndNumber) {
     console.warn(`[Electron] Falha ao resolver PID para HWND ${hwndNumber}:`, err.message);
   }
   return 0;
-}
-
-function stopAllMixerCaptures() {
-  for (const [pid, capturer] of mixerActiveCaptures.entries()) {
-    try {
-      capturer.stop();
-    } catch (e) {}
-  }
-  mixerActiveCaptures.clear();
 }
 
 // ==========================================
@@ -238,14 +231,13 @@ function stopActiveProcessAudio() {
   stopExclusionCaptures();
   if (activeProcessCapture) {
     try {
-      console.log('[Electron] Parando captura exclusiva de áudio de processo ativa...');
+      console.log('[Electron] Parando captura de áudio da transmissão...');
       activeProcessCapture.stop();
     } catch (err) {
       console.warn('[Electron] Erro ao interromper LoopbackCapture:', err);
     }
     activeProcessCapture = null;
   }
-  stopAllMixerCaptures();
 }
 
 
@@ -799,7 +791,39 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
               streamOptions.audio = 'loopback';
             }
           } else {
-            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando captura de áudio com isolamento anti-eco.`);
+            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando captura de áudio do sistema.`);
+            try {
+              activeProcessCapture = new LoopbackCapture();
+              activeProcessCapture.startSystemAudio((chunk) => {
+                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                  mainWindow.webContents.send('process-audio-chunk', chunk);
+                }
+              });
+              hasProcessAudio = true;
+            } catch (sysErr) {
+              console.warn('[Electron] Falha ao iniciar áudio do sistema para janela não identificada:', sysErr.message);
+              streamOptions.audio = 'loopback';
+            }
+          }
+        } else if (Array.isArray(excludeApps) && excludeApps.length > 0 && await startExclusionCapture(excludeApps)) {
+          // Tela inteira com apps excluídos: captura todos os apps, menos os escolhidos (e o próprio LoveChat)
+          hasProcessAudio = true;
+          exclusionApplied = true;
+          console.log(`[Electron] Áudio de tela cheia por exclusão ativo. Apps silenciados: ${excludeApps.join(', ')}`);
+        } else {
+          // Captura de tela inteira: capturar todo o áudio do computador via render endpoint padrão
+          console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
+          try {
+            activeProcessCapture = new LoopbackCapture();
+            activeProcessCapture.startSystemAudio((chunk) => {
+              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                mainWindow.webContents.send('process-audio-chunk', chunk);
+              }
+            });
+            hasProcessAudio = true;
+            console.log('[Electron] Captura de áudio de tela cheia ativa com sucesso via startSystemAudio!');
+          } catch (sysAudioErr) {
+            console.warn('[Electron] Falha ao iniciar startSystemAudio para tela cheia, tentando fallback por processo:', sysAudioErr.message);
             try {
               activeProcessCapture = new LoopbackCapture();
               const currentPid = process.pid;
@@ -809,51 +833,9 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
                 }
               });
               hasProcessAudio = true;
-            } catch (procErr) {
-              try {
-                activeProcessCapture = new LoopbackCapture();
-                activeProcessCapture.startSystemAudio((chunk) => {
-                  if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                    mainWindow.webContents.send('process-audio-chunk', chunk);
-                  }
-                });
-                hasProcessAudio = true;
-              } catch (e) {
-                streamOptions.audio = 'loopback';
-              }
-            }
-          }
-        } else if (Array.isArray(excludeApps) && excludeApps.length > 0 && await startExclusionCapture(excludeApps)) {
-          // Tela inteira com apps excluídos: captura todos os apps, menos os escolhidos (e o próprio LoveChat)
-          hasProcessAudio = true;
-          exclusionApplied = true;
-          console.log(`[Electron] Áudio de tela cheia por exclusão ativo. Apps silenciados: ${excludeApps.join(', ')}`);
-        } else {
-          // Captura de tela inteira: capturar todo o áudio do computador (WASAPI Anti-Echo Process Loopback)
-          console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
-          try {
-            activeProcessCapture = new LoopbackCapture();
-            const currentPid = process.pid;
-            activeProcessCapture.start(currentPid, false, (chunk) => {
-              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                mainWindow.webContents.send('process-audio-chunk', chunk);
-              }
-            });
-            hasProcessAudio = true;
-            console.log(`[Electron] Captura de áudio de tela cheia ativa com sucesso via WASAPI Loopback (excluindo PID ${currentPid})!`);
-          } catch (sysAudioErr) {
-            console.warn('[Electron] Falha ao iniciar loopback de processo para tela cheia, tentando fallback startSystemAudio:', sysAudioErr.message);
-            try {
-              activeProcessCapture = new LoopbackCapture();
-              activeProcessCapture.startSystemAudio((chunk) => {
-                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                  mainWindow.webContents.send('process-audio-chunk', chunk);
-                }
-              });
-              hasProcessAudio = true;
-              console.log('[Electron] Captura de áudio de tela cheia ativa via fallback startSystemAudio!');
+              console.log('[Electron] Captura de áudio de tela cheia ativa via fallback de processo!');
             } catch (fallbackErr) {
-              console.error('[Electron] Falha ao iniciar captura de áudio para tela cheia:', fallbackErr.message);
+              console.error('[Electron] Falha total ao iniciar captura de áudio para tela cheia:', fallbackErr.message);
               activeProcessCapture = null;
               streamOptions.audio = 'loopback';
             }
@@ -913,89 +895,8 @@ ipcMain.handle('stop-process-audio', () => {
 });
 
 // ==========================================
-// CANAIS IPC DO MIXER DE ÁUDIO DE TRANSMISSÃO
+// CANAIS IPC DE EXCLUSÃO DE ÁUDIO DE TELA CHEIA
 // ==========================================
-ipcMain.handle('get-audio-mixer-sources', async () => {
-  try {
-    const sources = await desktopCapturer.getSources({
-      types: ['window'],
-      thumbnailSize: { width: 120, height: 80 },
-      fetchWindowIcons: true
-    });
-
-    const currentPid = process.pid;
-    const list = [];
-    const seenPids = new Set();
-
-    for (const source of sources) {
-      const isWindow = source.id.startsWith('window:');
-      let pid = 0;
-      if (isWindow) {
-        const hwnd = parseInt(source.id.split(':')[1], 10);
-        pid = getPidFromHwnd(hwnd);
-      }
-
-      // Se pid não foi resolvido via HWND, usar HWND como fallback numérico para identificação
-      const targetPid = pid > 0 ? pid : (isWindow ? parseInt(source.id.split(':')[1], 10) : 0);
-
-      if (source.name && source.name !== 'LoveChat' && !seenPids.has(source.name)) {
-        seenPids.add(source.name);
-        list.push({
-          id: source.id,
-          name: source.name,
-          pid: targetPid,
-          appIcon: source.appIcon ? source.appIcon.toDataURL() : null,
-          thumbnail: source.thumbnail ? source.thumbnail.toDataURL() : null,
-          isWindow: true,
-          isLoveChat: (pid === currentPid)
-        });
-      }
-    }
-
-    // Se o capturador não encontrou muitas janelas, complementar com Get-Process no Windows
-    if (list.length <= 1 && process.platform === 'win32') {
-      try {
-        const psOutput = await new Promise((resolve) => {
-          exec('powershell -NoProfile -Command "Get-Process | Where-Object { $_.MainWindowTitle -ne \'\' } | Select-Object Id, ProcessName, MainWindowTitle | ConvertTo-Json"', (err, stdout) => {
-            if (err || !stdout) return resolve([]);
-            try {
-              const parsed = JSON.parse(stdout);
-              resolve(Array.isArray(parsed) ? parsed : [parsed]);
-            } catch (e) {
-              resolve([]);
-            }
-          });
-        });
-
-        for (const p of psOutput) {
-          if (p.Id && p.MainWindowTitle && p.Id !== currentPid && !seenPids.has(p.MainWindowTitle)) {
-            seenPids.add(p.MainWindowTitle);
-            list.push({
-              id: `process:${p.Id}`,
-              name: p.MainWindowTitle || p.ProcessName,
-              pid: p.Id,
-              appIcon: null,
-              thumbnail: null,
-              isWindow: true,
-              isLoveChat: false
-            });
-          }
-        }
-      } catch (e) {}
-    }
-
-    console.log(`[Electron] Mixer de áudio encontrou ${list.length} aplicativos.`);
-    return {
-      success: true,
-      currentPid,
-      apps: list
-    };
-  } catch (err) {
-    console.error('[Electron] Erro ao listar fontes do mixer:', err);
-    return { success: false, apps: [], error: err.message };
-  }
-});
-
 ipcMain.handle('get-excludable-audio-apps', async () => {
   try {
     const [winPids, table] = await Promise.all([listWindowPids(), getProcessTable()]);
@@ -1028,46 +929,6 @@ ipcMain.handle('get-excludable-audio-apps', async () => {
     console.error('[Electron] Erro ao listar apps para exclusão de áudio:', err);
     return { success: false, apps: [], error: err.message };
   }
-});
-ipcMain.handle('start-mixer-process-audio', async (event, { pid, includeProcessTree = true }) => {
-  if (!LoopbackCapture || !pid || pid <= 0) {
-    return { success: false, reason: 'Módulo WASAPI indisponível ou PID inválido' };
-  }
-
-  try {
-    if (mixerActiveCaptures.has(pid)) {
-      try { mixerActiveCaptures.get(pid).stop(); } catch (e) {}
-      mixerActiveCaptures.delete(pid);
-    }
-
-    console.log(`[Electron] Iniciando captura de mixer WASAPI para PID ${pid} (árvore: ${includeProcessTree})...`);
-    const capturer = new LoopbackCapture();
-    capturer.start(pid, includeProcessTree, (chunk) => {
-      if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-        mainWindow.webContents.send('mixer-process-audio-chunk', {
-          pid,
-          chunk
-        });
-      }
-    });
-
-    mixerActiveCaptures.set(pid, capturer);
-    return { success: true, pid };
-  } catch (err) {
-    console.error(`[Electron] Falha ao iniciar mixer para PID ${pid}:`, err);
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle('stop-mixer-process-audio', async (event, pid) => {
-  if (pid && mixerActiveCaptures.has(pid)) {
-    try {
-      mixerActiveCaptures.get(pid).stop();
-    } catch (e) {}
-    mixerActiveCaptures.delete(pid);
-    return { success: true, pid };
-  }
-  return { success: true };
 });
 
 // Alternar para servidor remoto (IP do parceiro)
