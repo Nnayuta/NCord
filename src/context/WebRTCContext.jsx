@@ -18,6 +18,21 @@ import { useToast } from '../hooks/useToast';
 
 const WebRTCContext = createContext(null);
 
+export const CAMERA_RESOLUTIONS = {
+  '1080p': { id: '1080p', label: '1080p (Full HD)', desc: 'Máxima nitidez e riqueza de detalhes', width: 1920, height: 1080, fps: 30 },
+  '720p': { id: '720p', label: '720p (HD)', desc: 'Equilíbrio ideal entre fluidez e nitidez', width: 1280, height: 720, fps: 30 },
+  '480p': { id: '480p', label: '480p (SD)', desc: 'Econômico e leve para conexões móveis', width: 640, height: 480, fps: 30 }
+};
+
+export const CAMERA_FILTERS = [
+  { id: 'none', label: 'Natural', desc: 'Cores autênticas e originais' },
+  { id: 'soft-glow', label: 'Suave Romântico', desc: 'Pele aveludada com brilho sutil caloroso' },
+  { id: 'warm-cozy', label: 'Luz de Velas', desc: 'Tons dourados e atmosfera acolhedora' },
+  { id: 'cinema', label: 'Cinemático', desc: 'Contraste artístico e profundidade refinada' },
+  { id: 'vintage', label: 'Retrô Nostalgia', desc: 'Toque analógico suave com cores de filme' },
+  { id: 'noir', label: 'P&B Elegante', desc: 'Preto e branco romântico clássico' }
+];
+
 export function WebRTCProvider({ children }) {
   const { showToast } = useToast();
   const { myProfile, otherProfile, applyRemoteProfileUpdate } = useProfiles();
@@ -47,7 +62,12 @@ export function WebRTCProvider({ children }) {
   const [isFloatingAvatarsHidden, setIsFloatingAvatarsHidden] = useState(false);
 
   const [activePreset, setActivePreset] = useState(QUALITY_PRESETS.ultra);
-  const [isTheaterMode, setIsTheaterMode] = useState(false);
+  const [isTheaterMode, setIsTheaterMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 768;
+    }
+    return false;
+  });
   const [screenFitMode, setScreenFitMode] = useState('contain'); // 'contain' | 'cover'
   const [cameraFitMode, setCameraFitMode] = useState('contain'); // 'contain' | 'cover'
   const [screenVolume, setScreenVolume] = useState(1.0);
@@ -59,6 +79,24 @@ export function WebRTCProvider({ children }) {
   // Streams de Câmera/Microfone
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+
+  // Configurações e Dispositivos de Câmera
+  const [availableCameras, setAvailableCameras] = useState([]);
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [cameraFacingMode, setCameraFacingMode] = useState('user'); // 'user' | 'environment'
+  const [isCameraMirrored, setIsCameraMirrored] = useState(true);
+  const [cameraFilter, setCameraFilter] = useState('none');
+  const [remoteCameraFilter, setRemoteCameraFilter] = useState('none');
+  const [cameraResolution, setCameraResolution] = useState('1080p');
+
+  const selectedCameraIdRef = useRef(selectedCameraId);
+  selectedCameraIdRef.current = selectedCameraId;
+  const cameraFacingModeRef = useRef(cameraFacingMode);
+  cameraFacingModeRef.current = cameraFacingMode;
+  const cameraResolutionRef = useRef(cameraResolution);
+  cameraResolutionRef.current = cameraResolution;
+  const cameraFilterRef = useRef(cameraFilter);
+  cameraFilterRef.current = cameraFilter;
 
   // Referências para conexões e canais
   const peerRef = useRef(null);
@@ -155,22 +193,78 @@ export function WebRTCProvider({ children }) {
     }
   };
 
-  // Captura de câmera com fallback inteligente
-  const getCameraStream = async () => {
+  // Enumeração e escuta de dispositivos de câmera
+  const refreshCameraDevices = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) {
+      return [];
+    }
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices
+        .filter((d) => d.kind === 'videoinput')
+        .map((d, idx) => ({
+          deviceId: d.deviceId,
+          label: d.label || `Câmera ${idx + 1}`
+        }));
+      setAvailableCameras(videoDevices);
+      if (videoDevices.length > 0 && !selectedCameraIdRef.current) {
+        setSelectedCameraId(videoDevices[0].deviceId);
+      }
+      return videoDevices;
+    } catch (err) {
+      console.warn('[WebRTC] Erro ao enumerar câmeras:', err);
+      return [];
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCameraDevices();
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {
+      const handleDeviceChange = () => {
+        refreshCameraDevices();
+      };
+      navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+      return () => {
+        navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      };
+    }
+  }, [refreshCameraDevices]);
+
+  // Captura de câmera com suporte flexível a deviceId, facingMode e resolução
+  const getCameraStream = useCallback(async (targetDeviceId, targetFacingMode, targetResolution) => {
+    const devId = targetDeviceId !== undefined ? targetDeviceId : selectedCameraIdRef.current;
+    const facing = targetFacingMode !== undefined ? targetFacingMode : cameraFacingModeRef.current;
+    const resKey = targetResolution || cameraResolutionRef.current || '1080p';
+    const chosenRes = CAMERA_RESOLUTIONS[resKey] || CAMERA_RESOLUTIONS['1080p'];
+
+    const videoConstraints = {
+      width: { ideal: chosenRes.width, min: 480 },
+      height: { ideal: chosenRes.height, min: 360 },
+      frameRate: { ideal: chosenRes.fps }
+    };
+
+    if (devId) {
+      videoConstraints.deviceId = { ideal: devId };
+    } else if (facing) {
+      videoConstraints.facingMode = { ideal: facing };
+    }
+
     try {
       return await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1920, min: 640 },
-          height: { ideal: 1080, min: 480 },
-          aspectRatio: { ideal: 1.7777777778 },
-          frameRate: { ideal: 30 }
-        }
+        video: videoConstraints
       });
     } catch (err1) {
-      console.warn('[WebRTC] Tentando fallback para captura básica de câmera:', err1);
-      return await navigator.mediaDevices.getUserMedia({ video: true });
+      console.warn('[WebRTC] Tentando fallback para captura de câmera com constraints básicas:', err1);
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          video: devId ? { deviceId: { ideal: devId } } : (facing ? { facingMode: { ideal: facing } } : true)
+        });
+      } catch (err2) {
+        console.warn('[WebRTC] Tentando fallback definitivo para qualquer câmera:', err2);
+        return await navigator.mediaDevices.getUserMedia({ video: true });
+      }
     }
-  };
+  }, []);
 
   // Alternar Microfone
   const toggleMic = useCallback(async () => {
@@ -280,7 +374,7 @@ export function WebRTCProvider({ children }) {
     try {
       if (isVideoOff) {
         if (!realCamTrackRef.current || realCamTrackRef.current.readyState === 'ended') {
-          const camStream = await getCameraStream();
+          const camStream = await getCameraStream(selectedCameraIdRef.current, cameraFacingModeRef.current, cameraResolutionRef.current);
           realCamTrackRef.current = camStream.getVideoTracks()[0];
         } else {
           realCamTrackRef.current.enabled = true;
@@ -317,11 +411,13 @@ export function WebRTCProvider({ children }) {
             dataConnRef.current.send({
               type: 'media-state',
               isVideoOff: false,
-              isMicMuted
+              isMicMuted,
+              cameraFilter: cameraFilterRef.current
             });
           } catch (e) {}
         }
 
+        refreshCameraDevices();
         showToast('Câmera ativada 📷', 'info');
       } else {
         if (realCamTrackRef.current) {
@@ -383,7 +479,177 @@ export function WebRTCProvider({ children }) {
       }
       showToast(errorMsg, 'error');
     }
-  }, [isVideoOff, isMicMuted, activePreset, showToast]);
+  }, [isVideoOff, isMicMuted, activePreset, getCameraStream, refreshCameraDevices, showToast]);
+
+  // Troca dinâmica de câmera (In-flight ReplaceTrack)
+  const switchCamera = useCallback(async (deviceId) => {
+    try {
+      setSelectedCameraId(deviceId);
+
+      if (!isVideoOff) {
+        const camStream = await getCameraStream(deviceId, cameraFacingModeRef.current, cameraResolutionRef.current);
+        const newTrack = camStream.getVideoTracks()[0];
+        if (!newTrack) throw new Error('Não foi possível obter vídeo do novo dispositivo.');
+
+        const pc = mainMediaCallRef.current?.peerConnection;
+        if (pc) {
+          let vSender = videoSenderRef.current;
+          if (!vSender) {
+            const senders = pc.getSenders();
+            vSender = senders.find((s) => s.track && s.track.kind === 'video');
+            if (!vSender && pc.getTransceivers) {
+              const vt = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+              if (vt) vSender = vt.sender;
+            }
+            videoSenderRef.current = vSender;
+          }
+
+          if (vSender) {
+            await vSender.replaceTrack(newTrack);
+            await applySenderParameters(vSender, activePreset, false);
+          }
+        }
+
+        if (realCamTrackRef.current) {
+          try { realCamTrackRef.current.stop(); } catch (e) {}
+        }
+        realCamTrackRef.current = newTrack;
+
+        setLocalStream((prev) => {
+          const audioTrack = prev ? prev.getAudioTracks()[0] : (dummyAudioTrackRef.current || createDummyAudioTrack());
+          return new MediaStream([newTrack, audioTrack].filter(Boolean));
+        });
+
+        refreshCameraDevices();
+      }
+
+      const camObj = availableCameras.find((c) => c.deviceId === deviceId);
+      showToast(`Câmera alterada: ${camObj?.label || 'Dispositivo selecionado'} 🎥`, 'success');
+    } catch (err) {
+      console.error('Erro ao trocar câmera:', err);
+      showToast('Falha ao alternar para a câmera selecionada.', 'error');
+    }
+  }, [isVideoOff, activePreset, availableCameras, getCameraStream, refreshCameraDevices, showToast]);
+
+  // Inverter câmera (Frontal / Traseira ou próxima câmera)
+  const flipCamera = useCallback(async () => {
+    try {
+      const nextFacing = cameraFacingModeRef.current === 'user' ? 'environment' : 'user';
+      setCameraFacingMode(nextFacing);
+
+      // Auto-ajuste de espelhamento: frontal espelha, traseira não
+      const nextMirror = nextFacing === 'user';
+      setIsCameraMirrored(nextMirror);
+
+      let nextDevId = selectedCameraIdRef.current;
+      if (availableCameras.length > 1) {
+        const currIndex = availableCameras.findIndex((c) => c.deviceId === selectedCameraIdRef.current);
+        const nextIndex = (currIndex + 1) % availableCameras.length;
+        nextDevId = availableCameras[nextIndex]?.deviceId || '';
+        setSelectedCameraId(nextDevId);
+      }
+
+      if (!isVideoOff) {
+        const camStream = await getCameraStream(nextDevId, nextFacing, cameraResolutionRef.current);
+        const newTrack = camStream.getVideoTracks()[0];
+        if (!newTrack) throw new Error('Não foi possível obter vídeo ao virar câmera.');
+
+        const pc = mainMediaCallRef.current?.peerConnection;
+        if (pc) {
+          let vSender = videoSenderRef.current;
+          if (!vSender) {
+            const senders = pc.getSenders();
+            vSender = senders.find((s) => s.track && s.track.kind === 'video');
+            if (!vSender && pc.getTransceivers) {
+              const vt = pc.getTransceivers().find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+              if (vt) vSender = vt.sender;
+            }
+            videoSenderRef.current = vSender;
+          }
+
+          if (vSender) {
+            await vSender.replaceTrack(newTrack);
+            await applySenderParameters(vSender, activePreset, false);
+          }
+        }
+
+        if (realCamTrackRef.current) {
+          try { realCamTrackRef.current.stop(); } catch (e) {}
+        }
+        realCamTrackRef.current = newTrack;
+
+        setLocalStream((prev) => {
+          const audioTrack = prev ? prev.getAudioTracks()[0] : (dummyAudioTrackRef.current || createDummyAudioTrack());
+          return new MediaStream([newTrack, audioTrack].filter(Boolean));
+        });
+
+        refreshCameraDevices();
+      }
+
+      showToast(`Câmera invertida (${nextFacing === 'user' ? 'Frontal' : 'Traseira / Ambiente'}) 🔄`, 'info');
+    } catch (err) {
+      console.error('Erro ao virar câmera:', err);
+      showToast('Falha ao virar câmera.', 'error');
+    }
+  }, [availableCameras, isVideoOff, activePreset, getCameraStream, refreshCameraDevices, showToast]);
+
+  // Alternar espelhamento horizontal
+  const toggleCameraMirror = useCallback(() => {
+    setIsCameraMirrored((prev) => {
+      const next = !prev;
+      showToast(next ? 'Vídeo espelhado (Modo Selfie) 🪞' : 'Espelhamento desativado 👁️', 'info');
+      return next;
+    });
+  }, [showToast]);
+
+  // Alterar filtro romântico/estético de câmera
+  const changeCameraFilter = useCallback((filterId) => {
+    setCameraFilter(filterId);
+    if (dataConnRef.current && dataConnRef.current.open) {
+      try {
+        dataConnRef.current.send({
+          type: 'camera-filter',
+          filter: filterId
+        });
+      } catch (e) {}
+    }
+    const filterObj = CAMERA_FILTERS.find((f) => f.id === filterId);
+    showToast(`Filtro aplicado: ${filterObj?.label || 'Natural'} ✨`, 'info');
+  }, [showToast]);
+
+  // Alterar resolução da câmera
+  const changeCameraResolution = useCallback(async (resKey) => {
+    setCameraResolution(resKey);
+    if (!isVideoOff) {
+      try {
+        const camStream = await getCameraStream(selectedCameraIdRef.current, cameraFacingModeRef.current, resKey);
+        const newTrack = camStream.getVideoTracks()[0];
+        if (newTrack) {
+          const pc = mainMediaCallRef.current?.peerConnection;
+          if (pc) {
+            let vSender = videoSenderRef.current;
+            if (vSender) {
+              await vSender.replaceTrack(newTrack);
+              await applySenderParameters(vSender, activePreset, false);
+            }
+          }
+          if (realCamTrackRef.current) {
+            try { realCamTrackRef.current.stop(); } catch (e) {}
+          }
+          realCamTrackRef.current = newTrack;
+
+          setLocalStream((prev) => {
+            const audioTrack = prev ? prev.getAudioTracks()[0] : (dummyAudioTrackRef.current || createDummyAudioTrack());
+            return new MediaStream([newTrack, audioTrack].filter(Boolean));
+          });
+        }
+      } catch (err) {
+        console.warn('Erro ao atualizar resolução da câmera:', err);
+      }
+    }
+    const resObj = CAMERA_RESOLUTIONS[resKey];
+    showToast(`Resolução da câmera: ${resObj?.label || resKey} 📐`, 'info');
+  }, [isVideoOff, activePreset, getCameraStream, showToast]);
 
   // Destaque / Foco (Spotlight): 'local-camera' | 'remote-camera' | 'local-screen' | 'remote-screen' | null
   const [spotlightTarget, setSpotlightTarget] = useState(null);
@@ -492,6 +758,7 @@ export function WebRTCProvider({ children }) {
       }
 
       electronBridge.stopProcessAudio().catch(() => {});
+      audioWorkletManager.clearBuffer();
       showToast('Compartilhamento de tela finalizado.', 'info');
     } catch (err) {
       console.warn('[WebRTC] Erro ao parar compartilhamento de tela:', err);
@@ -882,7 +1149,8 @@ export function WebRTCProvider({ children }) {
           type: 'media-sync',
           isVideoOff: isVideoOffRef.current,
           isMicMuted: isMicMutedRef.current,
-          profile: myProfileRef.current
+          profile: myProfileRef.current,
+          cameraFilter: cameraFilterRef.current
         });
       } catch (e) {
         console.warn('[DataConnection] Falha ao enviar media-sync inicial:', e);
@@ -902,6 +1170,17 @@ export function WebRTCProvider({ children }) {
           applyRemoteProfileUpdate(data.profile);
         }
       } else if (data.type === 'media-sync' || data.type === 'media-state') {
+        if (data.type === 'media-sync') {
+          // Responde com o nosso estado atual: garante que o parceiro (ex.: celular) nunca fique com estado de câmera desatualizado
+          try {
+            conn.send({
+              type: 'media-state',
+              isVideoOff: isVideoOffRef.current,
+              isMicMuted: isMicMutedRef.current,
+              cameraFilter: cameraFilterRef.current
+            });
+          } catch (e) {}
+        }
         if (data.isVideoOff !== undefined) {
           setIsRemoteVideoOff(data.isVideoOff);
         }
@@ -910,6 +1189,13 @@ export function WebRTCProvider({ children }) {
         }
         if (data.profile) {
           applyRemoteProfileUpdate(data.profile);
+        }
+        if (data.cameraFilter !== undefined) {
+          setRemoteCameraFilter(data.cameraFilter);
+        }
+      } else if (data.type === 'camera-filter') {
+        if (data.filter !== undefined) {
+          setRemoteCameraFilter(data.filter);
         }
       } else if (data.type === 'screen-share-start') {
         showToast('O parceiro começou a transmitir a tela! 📺', 'info');
@@ -1030,6 +1316,20 @@ export function WebRTCProvider({ children }) {
         isTheaterMode,
         screenFitMode,
         cameraFitMode,
+        availableCameras,
+        selectedCameraId,
+        cameraFacingMode,
+        isCameraMirrored,
+        cameraFilter,
+        remoteCameraFilter,
+        cameraResolution,
+        switchCamera,
+        flipCamera,
+        toggleCameraMirror,
+        setCameraFilter: changeCameraFilter,
+        setCameraResolution: changeCameraResolution,
+        refreshCameraDevices,
+        getCameraStream,
         screenVolume,
         isScreenMuted,
         isLocalSpeaking,

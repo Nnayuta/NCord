@@ -209,8 +209,18 @@ export function ServerProvider({ children }) {
   // Iniciar Túnel Web Seguro
   const startWebTunnelAction = useCallback(async () => {
     if (!isElectron) {
-      showToast('O túnel só pode ser iniciado no aplicativo Desktop do Anfitrião.', 'info');
-      return { success: false };
+      const devUrl = `http://${lanIp || 'localhost'}:3000`;
+      setWebTunnelInfo({
+        isOnline: true,
+        url: devUrl,
+        token: 'token-dev',
+        lanIp: lanIp || '127.0.0.1',
+        zerotierIp: '',
+        status: 'online',
+        error: null
+      });
+      showToast('Modo Web Local ativo (Porta 3000)! ✨', 'success');
+      return { success: true, url: devUrl, token: 'token-dev' };
     }
 
     setWebTunnelInfo((prev) => ({ ...prev, status: 'starting' }));
@@ -241,7 +251,36 @@ export function ServerProvider({ children }) {
       showToast('Erro ao iniciar túnel web.', 'error');
       return { success: false, error: err.message };
     }
-  }, [showToast]);
+  }, [lanIp, showToast]);
+
+  // Iniciar Túnel e Copiar Link em 1 Clique Rápido
+  const startAndCopyWebLink = useCallback(async () => {
+    if (webTunnelInfo?.isOnline && webTunnelInfo?.url) {
+      const tokenParam = webTunnelInfo?.token ? `&token=${encodeURIComponent(webTunnelInfo.token)}` : '';
+      const magicLink = `${webTunnelInfo.url}/?room=lovechat&role=guest&profile=user2${tokenParam}`;
+      try {
+        await navigator.clipboard.writeText(magicLink);
+        showToast('Link Web copiado para a área de transferência! 💕', 'success');
+        return { success: true, link: magicLink };
+      } catch {
+        return { success: false };
+      }
+    }
+
+    const res = await startWebTunnelAction();
+    if (res?.success && res?.url) {
+      const tokenParam = res.token ? `&token=${encodeURIComponent(res.token)}` : '';
+      const magicLink = `${res.url}/?room=lovechat&role=guest&profile=user2${tokenParam}`;
+      try {
+        await navigator.clipboard.writeText(magicLink);
+        showToast('Link Mágico copiado com sucesso! Envie para o seu amor 💕', 'success');
+      } catch (e) {
+        console.warn('Clipboard write error:', e);
+      }
+      return { success: true, link: magicLink };
+    }
+    return { success: false };
+  }, [webTunnelInfo?.isOnline, webTunnelInfo?.url, webTunnelInfo?.token, startWebTunnelAction, showToast]);
 
   // Parar Túnel Web Seguro
   const stopWebTunnelAction = useCallback(async () => {
@@ -299,6 +338,7 @@ export function ServerProvider({ children }) {
         webTunnelInfo,
         startWebTunnelAction,
         stopWebTunnelAction,
+        startAndCopyWebLink,
         regenerateTokenAction,
         isWebInviteModalOpen,
         openWebInviteModal,

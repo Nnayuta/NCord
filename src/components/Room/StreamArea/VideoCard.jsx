@@ -1,6 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Heart, MicOff, VideoOff, Maximize2, Minimize2, Sparkles, Scan } from 'lucide-react';
+import {
+  Heart,
+  MicOff,
+  VideoOff,
+  Maximize,
+  Maximize2,
+  Minimize2,
+  Sparkles,
+  Scan,
+  FlipHorizontal,
+  RotateCw,
+  Sliders,
+  Play
+} from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
+import { toggleFullscreen } from '../../../services/fullscreen';
 
 export function VideoCard({
   isLocal,
@@ -9,11 +23,27 @@ export function VideoCard({
   isVideoOff,
   isMicMuted,
   isSpeaking,
-  targetId
+  targetId,
+  onOpenCamSettings
 }) {
   const videoRef = useRef(null);
-  const { spotlightTarget, toggleSpotlight, cameraFitMode } = useWebRTC();
+  const {
+    spotlightTarget,
+    toggleSpotlight,
+    cameraFitMode,
+    isCameraMirrored,
+    cameraFilter,
+    remoteCameraFilter,
+    flipCamera,
+    toggleCameraMirror
+  } = useWebRTC();
   const [localFitMode, setLocalFitMode] = useState(null);
+  const [playBlocked, setPlayBlocked] = useState(false);
+
+  const tryPlay = (el) => {
+    if (!el) return;
+    el.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true));
+  };
 
   // Modo de ajuste do vídeo: se definido localmente no card, usa o local; caso contrário, usa o global do contexto (padrão 'contain')
   const currentFitMode = localFitMode || cameraFitMode || 'contain';
@@ -24,13 +54,21 @@ export function VideoCard({
   useEffect(() => {
     if (videoRef.current && stream && videoRef.current.srcObject !== stream) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(() => {});
+      videoRef.current.play().catch(() => { });
     }
   }, [stream, hasVideoTrack, isVideoOff]);
 
+  // Duplo clique (mouse) ou duplo toque (celular) alterna o foco desta câmera.
+  // Implementado manualmente porque o evento 'dblclick' não é confiável em telas de toque.
+  const lastTapRef = useRef(0);
   const handleCardClick = (e) => {
-    if (!e.target.closest('button')) {
+    if (e.target.closest('button')) return;
+    const now = Date.now();
+    if (now - lastTapRef.current < 350) {
+      lastTapRef.current = 0;
       toggleSpotlight(targetId);
+    } else {
+      lastTapRef.current = now;
     }
   };
 
@@ -45,21 +83,18 @@ export function VideoCard({
   const handleFullscreen = (e) => {
     e.stopPropagation();
     const cardEl = e.currentTarget.closest('.video-card');
-    if (cardEl) {
-      if (!document.fullscreenElement) {
-        cardEl.requestFullscreen().catch(() => {});
-      } else {
-        document.exitFullscreen().catch(() => {});
-      }
-    }
+    toggleFullscreen(cardEl);
   };
+
+  const activeFilterClass = isLocal
+    ? (cameraFilter ? `cam-filter-${cameraFilter}` : '')
+    : (remoteCameraFilter ? `cam-filter-${remoteCameraFilter}` : '');
 
   return (
     <div
       className={`video-card ${isSpotlight ? 'spotlight-active' : ''}`}
       onClick={handleCardClick}
-      onDoubleClick={handleFullscreen}
-      title={isSpotlight ? 'Clique para sair do modo destaque (Dois cliques para tela cheia)' : 'Clique para focar nesta câmera (Dois cliques para tela cheia)'}
+      title={isSpotlight ? 'Dois cliques para sair do destaque' : 'Dois cliques para focar nesta câmera'}
       style={{ cursor: 'pointer' }}
     >
       {hasVideoTrack ? (
@@ -68,13 +103,13 @@ export function VideoCard({
             videoRef.current = el;
             if (el && stream && el.srcObject !== stream) {
               el.srcObject = stream;
-              el.play().catch(() => {});
+              tryPlay(el);
             }
           }}
           autoPlay
           playsInline
           muted={true}
-          className={currentFitMode}
+          className={`${currentFitMode} ${isLocal && isCameraMirrored ? 'video-mirrored' : ''} ${activeFilterClass}`}
         />
       ) : (
         <div className="avatar-placeholder">
@@ -91,6 +126,21 @@ export function VideoCard({
         </div>
       )}
 
+      {/* Autoplay bloqueado pelo navegador (iOS/Android): toque para exibir */}
+      {hasVideoTrack && playBlocked && (
+        <button
+          type="button"
+          className="btn-tap-to-play"
+          onClick={(e) => {
+            e.stopPropagation();
+            tryPlay(videoRef.current);
+          }}
+        >
+          <Play size={22} />
+          <span>Toque para ver o vídeo</span>
+        </button>
+      )}
+
       {/* Badge de Destaque Ativo */}
       {isSpotlight && (
         <div className="spotlight-active-badge">
@@ -101,6 +151,45 @@ export function VideoCard({
 
       {/* Barra de Ações Rápidas em Hover */}
       <div className="video-card-hover-actions">
+        {/* Ações específicas da câmera local */}
+        {isLocal && (
+          <>
+            <button
+              type="button"
+              className={`btn-card-action ${isCameraMirrored ? 'active-fit' : ''}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleCameraMirror();
+              }}
+              title={isCameraMirrored ? 'Desativar espelho' : 'Espelhar minha câmera (Modo Selfie)'}
+            >
+              <FlipHorizontal size={15} />
+            </button>
+            <button
+              type="button"
+              className="btn-card-action"
+              onClick={(e) => {
+                e.stopPropagation();
+                flipCamera();
+              }}
+              title="Virar Câmera (Frontal / Traseira)"
+            >
+              <RotateCw size={15} />
+            </button>
+            <button
+              type="button"
+              className="btn-card-action"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onOpenCamSettings) onOpenCamSettings();
+              }}
+              title="Configurações de Câmera (Filtros, Qualidade)"
+            >
+              <Sliders size={15} />
+            </button>
+          </>
+        )}
+
         {hasVideoTrack && (
           <button
             type="button"
@@ -108,27 +197,27 @@ export function VideoCard({
             onClick={toggleFitMode}
             title={currentFitMode === 'contain' ? 'Proporção: Sem Cortes (100% visível) - Clique para Preencher Card' : 'Proporção: Preencher Card - Clique para Sem Cortes'}
           >
-            <Scan size={16} />
+            <Scan size={15} />
           </button>
         )}
         <button
           type="button"
-          className="btn-card-action"
+          className="btn-card-action btn-spotlight-toggle"
           onClick={(e) => {
             e.stopPropagation();
             toggleSpotlight(targetId);
           }}
           title={isSpotlight ? 'Sair do Destaque' : 'Focar nesta Câmera'}
         >
-          {isSpotlight ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+          {isSpotlight ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
         </button>
         <button
           type="button"
           className="btn-card-action"
           onClick={handleFullscreen}
-          title="Tela Cheia Nativa (F11)"
+          title="Tela Cheia"
         >
-          <Maximize2 size={16} />
+          <Maximize size={15} />
         </button>
       </div>
 

@@ -17,7 +17,10 @@ export function FloatingParticipantAvatars() {
     setIsFloatingAvatarsMinimized,
     isFloatingAvatarsHidden,
     setIsFloatingAvatarsHidden,
-    toggleSpotlight
+    toggleSpotlight,
+    isCameraMirrored,
+    cameraFilter,
+    remoteCameraFilter
   } = useWebRTC();
   const { myProfile, otherProfile } = useProfiles();
 
@@ -117,7 +120,7 @@ export function FloatingParticipantAvatars() {
               autoPlay
               playsInline
               muted={true}
-              className="mini-video-feed"
+              className={`mini-video-feed ${isCameraMirrored ? 'video-mirrored' : ''} ${cameraFilter ? `cam-filter-${cameraFilter}` : ''}`}
             />
           ) : (
             <div className="mini-avatar-placeholder">
@@ -152,7 +155,7 @@ export function FloatingParticipantAvatars() {
               autoPlay
               playsInline
               muted={true}
-              className="mini-video-feed"
+              className={`mini-video-feed ${remoteCameraFilter ? `cam-filter-${remoteCameraFilter}` : ''}`}
             />
           ) : (
             <div className="mini-avatar-placeholder">

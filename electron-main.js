@@ -56,7 +56,186 @@ function stopAllMixerCaptures() {
   mixerActiveCaptures.clear();
 }
 
+// ==========================================
+// CAPTURA DE ÁUDIO "POR EXCLUSÃO" (tela inteira, escolhendo quais apps NÃO enviam áudio)
+// O WASAPI só aceita excluir UMA árvore de processos por captura, então fazemos o inverso:
+// capturamos individualmente cada app com janela aberta, exceto os excluídos (e o próprio LoveChat),
+// e o renderer soma as fontes (cada PID tem seu próprio buffer no AudioWorklet).
+// ==========================================
+let exclusionTimer = null;
+let exclusionToken = 0;
+let exclusionBusy = false;
+let exclusionLastWinKey = '';
+let exclusionProcessTable = new Map();
+const exclusionCaptures = new Map(); // pid -> LoopbackCapture
+
+// Processos de shell/host que possuem janelas mas cuja árvore englobaria apps de terceiros
+const EXCLUSION_SKIP_NAMES = new Set([
+  'explorer.exe',
+  'applicationframehost.exe',
+  'searchhost.exe',
+  'shellexperiencehost.exe',
+  'textinputhost.exe',
+  'startmenuexperiencehost.exe',
+  'dwm.exe'
+]);
+
+function getProcessTable() {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') return resolve(new Map());
+    exec(
+      'powershell -NoProfile -Command "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress"',
+      { maxBuffer: 1024 * 1024 * 16, windowsHide: true },
+      (err, stdout) => {
+        if (err || !stdout) return resolve(new Map());
+        try {
+          const parsed = JSON.parse(stdout);
+          const list = Array.isArray(parsed) ? parsed : [parsed];
+          const table = new Map();
+          for (const p of list) {
+            if (p && p.ProcessId) {
+              table.set(p.ProcessId, { ppid: p.ParentProcessId, name: String(p.Name || '') });
+            }
+          }
+          resolve(table);
+        } catch (e) {
+          resolve(new Map());
+        }
+      }
+    );
+  });
+}
+
+async function listWindowPids() {
+  const pids = new Set();
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 }
+    });
+    for (const s of sources) {
+      if (!s.id.startsWith('window:')) continue;
+      const pid = getPidFromHwnd(parseInt(s.id.split(':')[1], 10));
+      if (pid > 0) pids.add(pid);
+    }
+  } catch (e) {
+    console.warn('[Electron] Falha ao listar janelas para exclusão de áudio:', e.message);
+  }
+  return pids;
+}
+
+function stopExclusionCaptures() {
+  exclusionToken++;
+  if (exclusionTimer) {
+    clearInterval(exclusionTimer);
+    exclusionTimer = null;
+  }
+  for (const [, capturer] of exclusionCaptures.entries()) {
+    try { capturer.stop(); } catch (e) {}
+  }
+  exclusionCaptures.clear();
+  exclusionLastWinKey = '';
+  exclusionBusy = false;
+}
+
+async function syncExclusionCaptures(excludedNames, token) {
+  if (exclusionBusy) return;
+  exclusionBusy = true;
+  try {
+    const winPids = await listWindowPids();
+    if (token !== exclusionToken) return;
+
+    // Só reconsulta a tabela de processos quando o conjunto de janelas muda (evita custo de PowerShell a cada ciclo)
+    const winKey = [...winPids].sort((a, b) => a - b).join(',');
+    if (winKey !== exclusionLastWinKey || exclusionProcessTable.size === 0) {
+      const table = await getProcessTable();
+      if (token !== exclusionToken) return;
+      if (table.size > 0) {
+        exclusionProcessTable = table;
+        exclusionLastWinKey = winKey;
+      }
+    }
+    const table = exclusionProcessTable;
+    if (table.size === 0) return;
+
+    const ownPid = process.pid;
+    const hasAncestor = (pid, pred) => {
+      let cur = table.get(pid)?.ppid;
+      let guard = 0;
+      while (cur && guard++ < 32) {
+        if (pred(cur)) return true;
+        cur = table.get(cur)?.ppid;
+      }
+      return false;
+    };
+    const isExcludedPid = (pid) => {
+      const e = table.get(pid);
+      return !!e && excludedNames.has(e.name.toLowerCase());
+    };
+
+    const wanted = new Set();
+    for (const pid of winPids) {
+      const entry = table.get(pid);
+      if (!entry) continue;
+      if (pid === ownPid || hasAncestor(pid, (p) => p === ownPid)) continue; // anti-eco: nunca capturar o LoveChat
+      if (EXCLUSION_SKIP_NAMES.has(entry.name.toLowerCase())) continue;
+      if (isExcludedPid(pid) || hasAncestor(pid, isExcludedPid)) continue;
+      wanted.add(pid);
+    }
+    // Evita captura duplicada: se o pai já está sendo capturado (árvore inclui os filhos), ignora o filho
+    const finalPids = new Set([...wanted].filter((pid) => !hasAncestor(pid, (p) => wanted.has(p))));
+
+    for (const [pid, capturer] of [...exclusionCaptures.entries()]) {
+      if (!finalPids.has(pid)) {
+        try { capturer.stop(); } catch (e) {}
+        exclusionCaptures.delete(pid);
+      }
+    }
+
+    for (const pid of finalPids) {
+      if (exclusionCaptures.has(pid)) continue;
+      try {
+        const capturer = new LoopbackCapture();
+        capturer.start(pid, true, (chunk) => {
+          if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+            mainWindow.webContents.send('process-audio-chunk', { id: `excl:${pid}`, chunk });
+          }
+        });
+        exclusionCaptures.set(pid, capturer);
+        console.log(`[Electron] Exclusão de áudio: capturando PID ${pid} (${table.get(pid)?.name}).`);
+      } catch (err) {
+        console.warn(`[Electron] Exclusão de áudio: falha ao capturar PID ${pid}:`, err.message);
+      }
+    }
+  } finally {
+    exclusionBusy = false;
+  }
+}
+
+/**
+ * Inicia a captura por exclusão. Retorna true se conseguiu resolver processos/janelas (módulos nativos disponíveis).
+ */
+async function startExclusionCapture(excludedList) {
+  stopExclusionCaptures();
+  const excludedNames = new Set(
+    (excludedList || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean)
+  );
+  const token = exclusionToken;
+  exclusionProcessTable = new Map();
+  await syncExclusionCaptures(excludedNames, token);
+  if (token !== exclusionToken) return false;
+  if (exclusionCaptures.size === 0 && exclusionProcessTable.size === 0) {
+    return false; // não foi possível resolver processos: o chamador usa o modo padrão
+  }
+  // Apps abertos depois do início da live também entram automaticamente
+  exclusionTimer = setInterval(() => {
+    syncExclusionCaptures(excludedNames, token).catch(() => {});
+  }, 4000);
+  return true;
+}
+
 function stopActiveProcessAudio() {
+  stopExclusionCaptures();
   if (activeProcessCapture) {
     try {
       console.log('[Electron] Parando captura exclusiva de áudio de processo ativa...');
@@ -542,7 +721,7 @@ ipcMain.handle('get-desktop-sources', async () => {
   }
 });
 
-ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sourceName }) => {
+ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sourceName, excludeApps }) => {
   const cb = pendingDisplayMediaCallback;
   pendingDisplayMediaCallback = null;
 
@@ -595,6 +774,7 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
       const isWindowChoice = chosen.id.startsWith('window:');
       const streamOptions = { video: chosen };
       let hasProcessAudio = false;
+      let exclusionApplied = false;
 
       if (withAudio && LoopbackCapture) {
         if (isWindowChoice) {
@@ -643,6 +823,11 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
               }
             }
           }
+        } else if (Array.isArray(excludeApps) && excludeApps.length > 0 && await startExclusionCapture(excludeApps)) {
+          // Tela inteira com apps excluídos: captura todos os apps, menos os escolhidos (e o próprio LoveChat)
+          hasProcessAudio = true;
+          exclusionApplied = true;
+          console.log(`[Electron] Áudio de tela cheia por exclusão ativo. Apps silenciados: ${excludeApps.join(', ')}`);
         } else {
           // Captura de tela inteira: capturar todo o áudio do computador (WASAPI Anti-Echo Process Loopback)
           console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
@@ -682,6 +867,7 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
           success: true,
           isWindow: isWindowChoice,
           hasProcessAudio,
+          exclusionApplied,
           sourceId: chosen.id,
           sourceName: chosen.name
         });
@@ -693,6 +879,7 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
         success: true,
         isWindow: isWindowChoice,
         hasProcessAudio,
+        exclusionApplied,
         sourceId: chosen.id,
         sourceName: chosen.name
       };
@@ -809,6 +996,39 @@ ipcMain.handle('get-audio-mixer-sources', async () => {
   }
 });
 
+ipcMain.handle('get-excludable-audio-apps', async () => {
+  try {
+    const [winPids, table] = await Promise.all([listWindowPids(), getProcessTable()]);
+    const sources = await desktopCapturer.getSources({
+      types: ['window'],
+      thumbnailSize: { width: 0, height: 0 },
+      fetchWindowIcons: true
+    });
+    const ownPid = process.pid;
+    const byName = new Map(); // exeName(lowercase) -> app
+    for (const s of sources) {
+      if (!s.id.startsWith('window:')) continue;
+      const pid = getPidFromHwnd(parseInt(s.id.split(':')[1], 10));
+      const entry = table.get(pid);
+      if (!pid || !entry) continue;
+      if (pid === ownPid) continue;
+      const exeName = entry.name.toLowerCase();
+      if (EXCLUSION_SKIP_NAMES.has(exeName)) continue;
+      if (!byName.has(exeName)) {
+        byName.set(exeName, {
+          exeName,
+          displayName: entry.name.replace(/\.exe$/i, ''),
+          windowTitle: s.name,
+          appIcon: s.appIcon ? s.appIcon.toDataURL() : null
+        });
+      }
+    }
+    return { success: true, apps: [...byName.values()].sort((a, b) => a.displayName.localeCompare(b.displayName)) };
+  } catch (err) {
+    console.error('[Electron] Erro ao listar apps para exclusão de áudio:', err);
+    return { success: false, apps: [], error: err.message };
+  }
+});
 ipcMain.handle('start-mixer-process-audio', async (event, { pid, includeProcessTree = true }) => {
   if (!LoopbackCapture || !pid || pid <= 0) {
     return { success: false, reason: 'Módulo WASAPI indisponível ou PID inválido' };

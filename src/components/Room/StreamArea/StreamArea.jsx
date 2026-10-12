@@ -5,11 +5,11 @@ import { VideoGrid } from './VideoGrid';
 import { ControlsBar } from '../Controls/ControlsBar';
 import { RemoteAudioPlayer } from './RemoteAudioPlayer';
 
-export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum }) {
-  const { isTheaterMode, setIsTheaterMode } = useWebRTC();
+export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onOpenAlbum, onOpenCamSettings }) {
+  const { isTheaterMode, setIsTheaterMode, spotlightTarget } = useWebRTC();
 
   return (
-    <main className="stream-area">
+    <main className={`stream-area ${spotlightTarget ? 'has-spotlight' : ''}`}>
       {/* Reprodutor de áudio de voz do parceiro (independente de câmera) */}
       <RemoteAudioPlayer />
 
@@ -26,13 +26,18 @@ export function StreamArea({ onOpenMixer, onOpenQuality, onOpenScreenPicker, onO
         </button>
       )}
 
-      <VideoGrid onOpenMixer={onOpenMixer} onOpenScreenPicker={onOpenScreenPicker} />
+      <VideoGrid
+        onOpenMixer={onOpenMixer}
+        onOpenScreenPicker={onOpenScreenPicker}
+        onOpenCamSettings={onOpenCamSettings}
+      />
 
       <ControlsBar
         onOpenMixer={onOpenMixer}
         onOpenQuality={onOpenQuality}
         onOpenScreenPicker={onOpenScreenPicker}
         onOpenAlbum={onOpenAlbum}
+        onOpenCamSettings={onOpenCamSettings}
       />
     </main>
   );

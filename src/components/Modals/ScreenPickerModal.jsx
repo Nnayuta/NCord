@@ -1,7 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ScreenShare, X, LayoutGrid, Monitor, Volume2, Loader2, RotateCw, Check } from 'lucide-react';
+import { ScreenShare, X, LayoutGrid, Monitor, Volume2, VolumeX, Loader2, RotateCw, Check } from 'lucide-react';
 import { electronBridge, isElectron } from '../../services/electronBridge';
 import { useWebRTC } from '../../context/WebRTCContext';
+import { useToast } from '../../hooks/useToast';
+
+const EXCLUDED_APPS_STORAGE_KEY = 'ncord.excludedAudioApps';
+
+function loadExcludedApps() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(EXCLUDED_APPS_STORAGE_KEY) || '[]');
+    return Array.isArray(raw) ? raw.filter((n) => typeof n === 'string') : [];
+  } catch (e) {
+    return [];
+  }
+}
 
 export function ScreenPickerModal({ isOpen, onClose }) {
   const { startScreenShare, isLocalScreenSharing } = useWebRTC();
@@ -10,6 +22,9 @@ export function ScreenPickerModal({ isOpen, onClose }) {
   const [activeTab, setActiveTab] = useState('applications'); // 'applications' | 'displays'
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [streamAudio, setStreamAudio] = useState(true);
+  const [excludableApps, setExcludableApps] = useState([]);
+  const [excludedNames, setExcludedNames] = useState(loadExcludedApps); // exeNames (minúsculo) cujo áudio NÃO será enviado
+  const { showToast } = useToast();
   const isFetchingRef = useRef(false);
 
   const fetchSources = useCallback(async () => {
@@ -44,8 +59,19 @@ export function ScreenPickerModal({ isOpen, onClose }) {
   useEffect(() => {
     if (isOpen) {
       fetchSources();
+      electronBridge.getExcludableAudioApps().then((apps) => setExcludableApps(apps)).catch(() => {});
     }
   }, [isOpen, fetchSources]);
+
+  const toggleExcluded = (exeName) => {
+    setExcludedNames((prev) => {
+      const next = prev.includes(exeName) ? prev.filter((n) => n !== exeName) : [...prev, exeName];
+      try {
+        localStorage.setItem(EXCLUDED_APPS_STORAGE_KEY, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
 
   // Suporte a teclado: ESC para fechar, ENTER para confirmar
   useEffect(() => {
@@ -75,7 +101,12 @@ export function ScreenPickerModal({ isOpen, onClose }) {
     if (!selectedSourceId) return;
     const selected = sources.find((s) => s.id === selectedSourceId);
     if (selected) {
-      await electronBridge.selectDesktopSource(selected.id, streamAudio, selected.name);
+      const isDisplay = selected.id.startsWith('screen:');
+      const excludeApps = isDisplay && streamAudio ? excludedNames : [];
+      const result = await electronBridge.selectDesktopSource(selected.id, streamAudio, selected.name, excludeApps);
+      if (excludeApps.length > 0 && result && result.success && !result.exclusionApplied) {
+        showToast('Não foi possível excluir apps do áudio; transmitindo o áudio do computador inteiro.', 'error');
+      }
       await startScreenShare(selected.id);
     }
     onClose();
@@ -220,6 +251,55 @@ export function ScreenPickerModal({ isOpen, onClose }) {
             <span className="toggle-slider"></span>
           </label>
         </div>
+
+        {/* Apps que NÃO enviam áudio (apenas transmissão de tela inteira) */}
+        {activeTab === 'displays' && streamAudio && (
+          <div className="audio-exclude-section">
+            <div className="audio-exclude-header">
+              <VolumeX size={16} color="#f87171" />
+              <div>
+                <div className="audio-exclude-title">Não enviar o áudio destes apps</div>
+                <div className="audio-exclude-desc">
+                  Todo o resto do computador continua com som.
+                  {excludedNames.length > 0 ? ` ${excludedNames.length} silenciado${excludedNames.length > 1 ? 's' : ''}.` : ''}
+                </div>
+              </div>
+            </div>
+            <div className="audio-exclude-list">
+              {(() => {
+                // Apps abertos agora + apps já escolhidos antes que estão fechados (continuam excluídos)
+                const running = new Set(excludableApps.map((a) => a.exeName));
+                const closedExcluded = excludedNames
+                  .filter((n) => !running.has(n))
+                  .map((n) => ({ exeName: n, displayName: n.replace(/\.exe$/i, ''), windowTitle: '(fechado)', appIcon: null }));
+                const list = [...excludableApps, ...closedExcluded];
+                if (list.length === 0) {
+                  return <div className="audio-exclude-empty">Nenhum app com janela aberto encontrado.</div>;
+                }
+                return list.map((app) => {
+                  const excluded = excludedNames.includes(app.exeName);
+                  return (
+                    <button
+                      type="button"
+                      key={app.exeName}
+                      className={`audio-exclude-item ${excluded ? 'excluded' : ''}`}
+                      onClick={() => toggleExcluded(app.exeName)}
+                      aria-pressed={excluded}
+                      title={excluded ? 'Clique para voltar a enviar o áudio deste app' : 'Clique para NÃO enviar o áudio deste app'}
+                    >
+                      {app.appIcon ? <img src={app.appIcon} alt="" /> : <Monitor size={18} />}
+                      <span className="audio-exclude-name">
+                        <strong>{app.displayName}</strong>
+                        <small>{app.windowTitle}</small>
+                      </span>
+                      {excluded ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Ações */}
         <div className="screen-picker-actions">

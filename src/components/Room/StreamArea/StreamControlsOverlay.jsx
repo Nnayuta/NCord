@@ -1,6 +1,7 @@
 import React from 'react';
 import { Volume2, VolumeX, Scan, SlidersHorizontal, PanelLeftClose, Maximize, ScreenShare } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
+import { toggleFullscreen } from '../../../services/fullscreen';
 
 export function StreamControlsOverlay({
   onOpenMixer,
@@ -28,14 +29,7 @@ export function StreamControlsOverlay({
   };
 
   const handleFullscreen = () => {
-    const el = document.getElementById(cardElementId);
-    if (el) {
-      if (!document.fullscreenElement) {
-        el.requestFullscreen().catch(() => {});
-      } else {
-        document.exitFullscreen().catch(() => {});
-      }
-    }
+    toggleFullscreen(document.getElementById(cardElementId));
   };
 
   return (

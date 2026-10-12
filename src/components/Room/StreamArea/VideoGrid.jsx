@@ -7,7 +7,7 @@ import { VideoCard } from './VideoCard';
 import { FloatingParticipantAvatars } from './FloatingParticipantAvatars';
 import { DualScreenSwitcher } from './DualScreenSwitcher';
 
-export function VideoGrid({ onOpenMixer, onOpenScreenPicker }) {
+export function VideoGrid({ onOpenMixer, onOpenScreenPicker, onOpenCamSettings }) {
   const {
     isScreenSharing,
     isLocalScreenSharing,
@@ -49,6 +49,7 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker }) {
           isMicMuted={isMicMuted}
           isSpeaking={isLocalSpeaking}
           targetId="local-camera"
+          onOpenCamSettings={onOpenCamSettings}
         />
       </div>
     );
@@ -92,6 +93,7 @@ export function VideoGrid({ onOpenMixer, onOpenScreenPicker }) {
           isMicMuted={isMicMuted}
           isSpeaking={isLocalSpeaking}
           targetId="local-camera"
+          onOpenCamSettings={onOpenCamSettings}
         />
 
         {/* Câmera / Avatar Remoto (Parceiro) */}

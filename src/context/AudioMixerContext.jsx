@@ -24,14 +24,14 @@ export function AudioMixerProvider({ children }) {
     electronBridge.onMixerProcessAudioChunk((data) => {
       const buffer = data?.chunk || data?.data || (data instanceof ArrayBuffer ? data : null) || data;
       if (buffer) {
-        audioWorkletManager.feedPCM(buffer);
+        audioWorkletManager.feedPCM(buffer, `mix:${data?.pid ?? 'unknown'}`);
       }
     });
 
     electronBridge.onProcessAudioChunk((data) => {
       const buffer = data?.chunk || data?.data || (data instanceof ArrayBuffer ? data : null) || data;
       if (buffer) {
-        audioWorkletManager.feedPCM(buffer);
+        audioWorkletManager.feedPCM(buffer, data?.id ?? 'main');
       }
     });
 

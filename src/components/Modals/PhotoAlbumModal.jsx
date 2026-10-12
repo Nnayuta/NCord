@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   X,
   FolderOpen,
@@ -10,15 +10,29 @@ import {
   RotateCw,
   ChevronLeft,
   ChevronRight,
-  Maximize2,
-  Sparkles,
-  FileImage
+  FileImage,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react';
 import { apiService } from '../../services/apiService';
 import { electronBridge, isElectron } from '../../services/electronBridge';
 import { useServer } from '../../context/ServerContext';
 import { useProfiles } from '../../context/ProfileContext';
 import { useToast } from '../../hooks/useToast';
+import './PhotoAlbum.css';
+
+const POLL_INTERVAL_MS = 10000;
+const SWIPE_MIN_PX = 60;
+const DOUBLE_TAP_MS = 300;
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return '';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.round(bytes / 1024)} KB`;
+};
+
+// Assinatura leve da lista: só atualiza o estado (e re-renderiza a grade) quando algo mudou de fato
+const photosSignature = (list) => list.map((p) => `${p.name}:${p.mtime || 0}:${p.size || 0}`).join('|');
 
 export function PhotoAlbumModal({ isOpen, onClose }) {
   const { mode } = useServer();
@@ -30,43 +44,67 @@ export function PhotoAlbumModal({ isOpen, onClose }) {
   const [isConfigured, setIsConfigured] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(null);
+  const [sortMode, setSortMode] = useState('recent'); // 'recent' | 'old' | 'name'
+  const [viewerIndex, setViewerIndex] = useState(null);
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const [zoomed, setZoomed] = useState(false);
   const [isSettingAvatar, setIsSettingAvatar] = useState(false);
+
+  const signatureRef = useRef('');
+  const touchRef = useRef({ x: 0, y: 0, t: 0, lastTap: 0 });
 
   const fetchPhotos = useCallback(async (showNotification = false) => {
     setIsLoading(true);
     try {
       const res = await apiService.getAlbumPhotos();
       if (res) {
+        const list = Array.isArray(res.photos) ? res.photos : [];
         setIsConfigured(!!res.isConfigured);
         setFolderName(res.folderName || '');
-        setPhotos(Array.isArray(res.photos) ? res.photos : []);
+        const sig = photosSignature(list);
+        if (sig !== signatureRef.current) {
+          signatureRef.current = sig;
+          setPhotos(list);
+        }
         if (showNotification) {
-          showToast(`Álbum atualizado! ${res.photos?.length || 0} fotos encontradas. 📸`, 'info');
+          showToast(`Álbum atualizado! ${list.length} ${list.length === 1 ? 'foto' : 'fotos'} 📸`, 'info');
         }
       }
     } catch (err) {
       console.warn('[PhotoAlbumModal] Erro ao carregar fotos:', err);
     } finally {
       setIsLoading(false);
+      setHasLoadedOnce(true);
     }
   }, [showToast]);
 
+  // Carrega ao abrir e atualiza periodicamente (pausa com a aba oculta)
   useEffect(() => {
-    if (isOpen) {
-      fetchPhotos();
-      const interval = setInterval(() => {
-        fetchPhotos();
-      }, 5000);
-      return () => clearInterval(interval);
-    } else {
-      setSelectedPhotoIndex(null);
+    if (!isOpen) {
+      setViewerIndex(null);
       setSearchTerm('');
+      setZoomed(false);
+      return undefined;
     }
+    fetchPhotos();
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchPhotos();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
   }, [isOpen, fetchPhotos]);
 
-  // Ação de Selecionar Pasta Local (Apenas Anfitrião no Desktop)
+  // Trava o scroll da página enquanto o álbum está aberto
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
+
   const handleSelectFolder = async () => {
     if (!isElectron) {
       showToast('A seleção de pasta local está disponível apenas no aplicativo Desktop do Anfitrião.', 'info');
@@ -84,13 +122,13 @@ export function PhotoAlbumModal({ isOpen, onClose }) {
     }
   };
 
-  // Ação de Desativar Pasta Compartilhada
   const handleClearFolder = async () => {
     try {
       if (isElectron) {
         await electronBridge.clearAlbumFolder();
       }
       await apiService.clearAlbumFolder();
+      signatureRef.current = '';
       setIsConfigured(false);
       setFolderName('');
       setPhotos([]);
@@ -100,13 +138,10 @@ export function PhotoAlbumModal({ isOpen, onClose }) {
     }
   };
 
-  // Baixar Imagem para o Computador
-  const handleDownload = async (e, photo) => {
-    if (e) e.stopPropagation();
+  const handleDownload = async (photo) => {
     try {
       showToast('Iniciando download...', 'info');
-      const photoUrl = apiService.getPhotoUrl(photo.name);
-      const response = await fetch(photoUrl);
+      const response = await fetch(apiService.getPhotoUrl(photo.name));
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -123,13 +158,10 @@ export function PhotoAlbumModal({ isOpen, onClose }) {
     }
   };
 
-  // Definir Imagem como Foto de Perfil
-  const handleSetAsAvatar = async (e, photo) => {
-    if (e) e.stopPropagation();
+  const handleSetAsAvatar = async (photo) => {
     setIsSettingAvatar(true);
     try {
-      const photoUrl = apiService.getPhotoUrl(photo.name);
-      const response = await fetch(photoUrl);
+      const response = await fetch(apiService.getPhotoUrl(photo.name));
       const blob = await response.blob();
       const file = new File([blob], photo.name, { type: blob.type || 'image/jpeg' });
       await updateProfileAvatar(activeProfileId, file);
@@ -142,294 +174,328 @@ export function PhotoAlbumModal({ isOpen, onClose }) {
     }
   };
 
-  // Filtrar fotos por termo de busca
-  const filteredPhotos = photos.filter((p) =>
-    (p.name || '').toLowerCase().includes(searchTerm.toLowerCase().trim())
-  );
+  const visiblePhotos = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    const list = photos.filter((p) => (p.name || '').toLowerCase().includes(term));
+    if (sortMode === 'old') list.sort((a, b) => (a.mtime || 0) - (b.mtime || 0));
+    else if (sortMode === 'name') list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { numeric: true }));
+    else list.sort((a, b) => (b.mtime || 0) - (a.mtime || 0));
+    return list;
+  }, [photos, searchTerm, sortMode]);
 
-  // Navegação no Lightbox
-  const handlePrev = useCallback((e) => {
-    if (e) e.stopPropagation();
-    setSelectedPhotoIndex((prev) => (prev > 0 ? prev - 1 : filteredPhotos.length - 1));
-  }, [filteredPhotos.length]);
+  const total = visiblePhotos.length;
+  const currentPhoto = viewerIndex !== null ? visiblePhotos[viewerIndex] : null;
 
-  const handleNext = useCallback((e) => {
-    if (e) e.stopPropagation();
-    setSelectedPhotoIndex((prev) => (prev < filteredPhotos.length - 1 ? prev + 1 : 0));
-  }, [filteredPhotos.length]);
+  const openViewer = (idx) => {
+    setViewerIndex(idx);
+    setChromeVisible(true);
+    setZoomed(false);
+  };
+  const closeViewer = useCallback(() => {
+    setViewerIndex(null);
+    setZoomed(false);
+  }, []);
 
-  // Teclado no Lightbox
+  const goPrev = useCallback(() => {
+    setZoomed(false);
+    setViewerIndex((i) => (i === null || total === 0 ? i : (i > 0 ? i - 1 : total - 1)));
+  }, [total]);
+
+  const goNext = useCallback(() => {
+    setZoomed(false);
+    setViewerIndex((i) => (i === null || total === 0 ? i : (i < total - 1 ? i + 1 : 0)));
+  }, [total]);
+
+  // Se a lista encolher (busca/remoção) com o visualizador aberto, mantém o índice válido
   useEffect(() => {
-    if (selectedPhotoIndex === null) return;
-    const handleKeyDown = (e) => {
-      if (e.key === 'ArrowLeft') handlePrev();
-      if (e.key === 'ArrowRight') handleNext();
-      if (e.key === 'Escape') setSelectedPhotoIndex(null);
+    if (viewerIndex !== null && viewerIndex >= total) {
+      setViewerIndex(total > 0 ? total - 1 : null);
+    }
+  }, [total, viewerIndex]);
+
+  // Teclado: Esc fecha o visualizador primeiro, depois o álbum
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        if (viewerIndex !== null) closeViewer();
+        else onClose();
+      } else if (viewerIndex !== null) {
+        if (e.key === 'ArrowLeft') goPrev();
+        if (e.key === 'ArrowRight') goNext();
+      }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedPhotoIndex, handlePrev, handleNext]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, viewerIndex, closeViewer, goPrev, goNext, onClose]);
+
+  // Pré-carrega as fotos vizinhas para navegação instantânea
+  useEffect(() => {
+    if (viewerIndex === null || total < 2) return;
+    [viewerIndex - 1, viewerIndex + 1].forEach((i) => {
+      const p = visiblePhotos[(i + total) % total];
+      if (p) {
+        const img = new Image();
+        img.src = apiService.getPhotoUrl(p.name);
+      }
+    });
+  }, [viewerIndex, total, visiblePhotos]);
+
+  // Gestos no visualizador: deslizar lateral = trocar, deslizar p/ baixo = fechar, toque = mostrar/ocultar barras, toque duplo = zoom
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    touchRef.current.x = t.clientX;
+    touchRef.current.y = t.clientY;
+    touchRef.current.t = Date.now();
+  };
+  const onTouchEnd = (e) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchRef.current.x;
+    const dy = t.clientY - touchRef.current.y;
+    const isTap = Math.abs(dx) < 10 && Math.abs(dy) < 10;
+
+    if (isTap) {
+      const now = Date.now();
+      if (now - touchRef.current.lastTap < DOUBLE_TAP_MS) {
+        touchRef.current.lastTap = 0;
+        setZoomed((z) => !z);
+      } else {
+        touchRef.current.lastTap = now;
+        setTimeout(() => {
+          if (touchRef.current.lastTap && Date.now() - touchRef.current.lastTap >= DOUBLE_TAP_MS - 20) {
+            touchRef.current.lastTap = 0;
+            setChromeVisible((v) => !v);
+          }
+        }, DOUBLE_TAP_MS);
+      }
+      return;
+    }
+    if (zoomed) return; // com zoom, o gesto é de rolagem/pan
+    if (Math.abs(dx) > SWIPE_MIN_PX && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      if (dx < 0) goNext();
+      else goPrev();
+    } else if (dy > 110 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+      closeViewer();
+    }
+  };
 
   if (!isOpen) return null;
 
-  const currentPhoto = selectedPhotoIndex !== null ? filteredPhotos[selectedPhotoIndex] : null;
-
-  const formatFileSize = (bytes) => {
-    if (!bytes) return '';
-    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${Math.round(bytes / 1024)} KB`;
-  };
+  const subtitle = isConfigured
+    ? `${folderName ? `${folderName} • ` : ''}${photos.length} ${photos.length === 1 ? 'foto' : 'fotos'}`
+    : 'Memórias e fotos em alta qualidade';
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-dialog album-modal-dialog" onClick={(e) => e.stopPropagation()}>
+    <div className="ab-overlay" onClick={onClose}>
+      <section
+        className="ab-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Álbum do Casal"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Cabeçalho */}
-        <div className="modal-header album-modal-header">
-          <div className="album-title-box">
-            <div className="album-icon-circle">
-              <Images size={20} color="#f43f8e" />
-            </div>
-            <div>
-              <h3>Álbum do Casal 📸</h3>
-              <p className="album-subtitle">
-                {isConfigured
-                  ? `Pasta: "${folderName}" • ${photos.length} ${photos.length === 1 ? 'foto' : 'fotos'}`
-                  : 'Compartilhe memórias e fotos especiais em alta qualidade'}
-              </p>
-            </div>
+        <header className="ab-header">
+          <div className="ab-header-icon"><Images size={20} /></div>
+          <div className="ab-header-text">
+            <h2>Álbum do Casal</h2>
+            <p>{subtitle}</p>
           </div>
-          <div className="album-header-actions">
-            <button
-              type="button"
-              className="btn-album-refresh"
-              onClick={() => fetchPhotos(true)}
-              title="Atualizar lista de fotos"
+          <button
+            type="button"
+            className="ab-icon-btn"
+            onClick={() => fetchPhotos(true)}
+            aria-label="Atualizar fotos"
+            title="Atualizar fotos"
+          >
+            <RotateCw size={18} className={isLoading ? 'spin' : ''} />
+          </button>
+          <button type="button" className="ab-icon-btn" onClick={onClose} aria-label="Fechar álbum" title="Fechar (Esc)">
+            <X size={20} />
+          </button>
+        </header>
+
+        {/* Busca, ordenação e controles do anfitrião */}
+        {isConfigured && (
+          <div className="ab-toolbar">
+            <label className="ab-search">
+              <Search size={16} />
+              <input
+                type="search"
+                inputMode="search"
+                placeholder="Buscar foto..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              {searchTerm && (
+                <button type="button" className="ab-search-clear" onClick={() => setSearchTerm('')} aria-label="Limpar busca">
+                  <X size={14} />
+                </button>
+              )}
+            </label>
+
+            <select
+              className="ab-select"
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value)}
+              aria-label="Ordenar fotos"
             >
-              <RotateCw size={16} className={isLoading ? 'spin' : ''} />
-            </button>
-            <button type="button" className="btn-modal-close" onClick={onClose} title="Fechar Álbum">
-              <X size={20} />
-            </button>
-          </div>
-        </div>
+              <option value="recent">Mais recentes</option>
+              <option value="old">Mais antigas</option>
+              <option value="name">Nome (A–Z)</option>
+            </select>
 
-        {/* Barra de Ferramentas / Controles de Pasta do Host */}
-        <div className="album-toolbar">
-          <div className="album-search-box">
-            <Search size={16} className="search-icon" />
-            <input
-              type="text"
-              placeholder="Buscar foto por nome..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                className="btn-clear-search"
-                onClick={() => setSearchTerm('')}
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
-
-          {/* Botões do Anfitrião */}
-          {isHost && (
-            <div className="album-host-controls">
-              <button
-                type="button"
-                className="btn-album-folder-action primary"
-                onClick={handleSelectFolder}
-                title="Escolher pasta no computador para compartilhar no álbum"
-              >
-                <FolderOpen size={16} />
-                <span>{isConfigured ? 'Trocar Pasta' : 'Selecionar Pasta de Fotos'}</span>
-              </button>
-
-              {isConfigured && (
-                <button
-                  type="button"
-                  className="btn-album-folder-action danger"
-                  onClick={handleClearFolder}
-                  title="Remover pasta compartilhada"
-                >
+            {isHost && (
+              <div className="ab-host-actions">
+                <button type="button" className="ab-btn" onClick={handleSelectFolder} title="Trocar pasta compartilhada">
+                  <FolderOpen size={16} />
+                  <span>Trocar pasta</span>
+                </button>
+                <button type="button" className="ab-btn danger" onClick={handleClearFolder} title="Desativar compartilhamento">
                   <FolderX size={16} />
                   <span>Desativar</span>
                 </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Corpo / Grade de Fotos */}
-        <div className="album-modal-body">
-          {!isConfigured ? (
-            <div className="album-empty-state">
-              <div className="album-empty-icon">
-                <FileImage size={48} />
               </div>
-              <h4>Nenhuma pasta compartilhada no momento</h4>
+            )}
+          </div>
+        )}
+
+        {/* Corpo */}
+        <div className="ab-body">
+          {!hasLoadedOnce ? (
+            <div className="ab-grid" aria-busy="true">
+              {Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="ab-tile ab-skeleton" />
+              ))}
+            </div>
+          ) : !isConfigured ? (
+            <div className="ab-empty">
+              <div className="ab-empty-icon"><FileImage size={44} /></div>
+              <h3>Nenhuma pasta compartilhada</h3>
               <p>
                 {isHost
-                  ? 'Você é o anfitrião! Clique no botão abaixo para escolher uma pasta de fotos do seu computador e compartilhar com o seu amor.'
-                  : 'O Anfitrião ainda não compartilhou uma pasta de fotos. Peça para ele selecionar uma pasta do PC dele! 💕'}
+                  ? 'Escolha uma pasta de fotos do seu computador para compartilhar com o seu amor.'
+                  : 'O anfitrião ainda não compartilhou uma pasta de fotos. Peça para ele escolher uma pasta no PC dele 💕'}
               </p>
               {isHost && (
-                <button
-                  type="button"
-                  className="btn-album-select-empty"
-                  onClick={handleSelectFolder}
-                >
+                <button type="button" className="ab-btn primary large" onClick={handleSelectFolder}>
                   <FolderOpen size={18} />
-                  <span>Selecionar Pasta de Fotos Agora</span>
+                  <span>Selecionar pasta de fotos</span>
                 </button>
               )}
             </div>
-          ) : filteredPhotos.length === 0 ? (
-            <div className="album-empty-state">
-              <h4>Nenhuma foto encontrada</h4>
+          ) : total === 0 ? (
+            <div className="ab-empty">
+              <div className="ab-empty-icon"><FileImage size={44} /></div>
+              <h3>Nenhuma foto encontrada</h3>
               <p>
                 {searchTerm
-                  ? `Nenhuma imagem encontrada com o termo "${searchTerm}".`
-                  : 'A pasta selecionada não contém arquivos de imagem compatíveis (.jpg, .png, .webp, .gif).'}
+                  ? `Nada encontrado para "${searchTerm}".`
+                  : 'A pasta não contém imagens compatíveis (.jpg, .png, .webp, .gif).'}
               </p>
             </div>
           ) : (
-            <div className="album-grid">
-              {filteredPhotos.map((photo, idx) => (
-                <div
+            <div className="ab-grid">
+              {visiblePhotos.map((photo, idx) => (
+                <button
+                  type="button"
                   key={photo.name}
-                  className="album-card"
-                  onClick={() => setSelectedPhotoIndex(idx)}
+                  className="ab-tile"
+                  onClick={() => openViewer(idx)}
+                  aria-label={`Abrir foto ${photo.name}`}
                 >
-                  <div className="album-card-thumb-wrapper">
-                    <img
-                      src={apiService.getPhotoUrl(photo.name)}
-                      alt={photo.name}
-                      className="album-card-img"
-                      loading="lazy"
-                    />
-                    <div className="album-card-overlay">
-                      <div className="album-overlay-actions">
-                        <button
-                          type="button"
-                          className="btn-album-action"
-                          onClick={(e) => handleSetAsAvatar(e, photo)}
-                          title="Definir como minha Foto de Perfil"
-                        >
-                          <Sparkles size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-album-action"
-                          onClick={(e) => handleDownload(e, photo)}
-                          title="Baixar foto para o PC"
-                        >
-                          <Download size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-album-action"
-                          onClick={() => setSelectedPhotoIndex(idx)}
-                          title="Ver em Tela Cheia"
-                        >
-                          <Maximize2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="album-card-info">
-                    <span className="album-card-name" title={photo.name}>
-                      {photo.name}
-                    </span>
-                    <span className="album-card-meta">
-                      {formatFileSize(photo.size)}
-                    </span>
-                  </div>
-                </div>
+                  <img
+                    src={apiService.getPhotoUrl(photo.name)}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    onLoad={(e) => e.currentTarget.classList.add('loaded')}
+                  />
+                  <span className="ab-tile-caption">
+                    <span className="ab-tile-name">{photo.name}</span>
+                    <span className="ab-tile-size">{formatFileSize(photo.size)}</span>
+                  </span>
+                </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Modal Lightbox em Tela Cheia */}
+        {/* Visualizador de foto */}
         {currentPhoto && (
-          <div className="album-lightbox-overlay" onClick={() => setSelectedPhotoIndex(null)}>
-            <div className="album-lightbox-content" onClick={(e) => e.stopPropagation()}>
-              {/* Barra Superior do Lightbox */}
-              <div className="lightbox-topbar">
-                <div className="lightbox-info">
-                  <span className="lightbox-filename">{currentPhoto.name}</span>
-                  <span className="lightbox-counter">
-                    {selectedPhotoIndex + 1} de {filteredPhotos.length}
-                  </span>
-                </div>
-                <div className="lightbox-actions">
-                  <button
-                    type="button"
-                    className="btn-lightbox-action primary"
-                    onClick={(e) => handleSetAsAvatar(e, currentPhoto)}
-                    disabled={isSettingAvatar}
-                    title="Usar como foto de perfil"
-                  >
-                    <UserCheck size={16} />
-                    <span>{isSettingAvatar ? 'Atualizando...' : 'Definir como Perfil'}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-lightbox-action"
-                    onClick={(e) => handleDownload(e, currentPhoto)}
-                    title="Salvar no computador"
-                  >
-                    <Download size={16} />
-                    <span>Baixar</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-lightbox-close"
-                    onClick={() => setSelectedPhotoIndex(null)}
-                    title="Fechar Visualizador (Esc)"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
+          <div
+            className={`ab-viewer ${chromeVisible ? '' : 'chrome-hidden'}`}
+            role="dialog"
+            aria-label="Visualizador de foto"
+          >
+            <div className="ab-viewer-top">
+              <button type="button" className="ab-viewer-btn" onClick={closeViewer} aria-label="Voltar para o álbum">
+                <ChevronLeft size={22} />
+              </button>
+              <div className="ab-viewer-title">
+                <span className="ab-viewer-name">{currentPhoto.name}</span>
+                <span className="ab-viewer-counter">
+                  {viewerIndex + 1} de {total}
+                  {currentPhoto.size ? ` • ${formatFileSize(currentPhoto.size)}` : ''}
+                </span>
               </div>
+              <button
+                type="button"
+                className="ab-viewer-btn"
+                onClick={() => setZoomed((z) => !z)}
+                aria-label={zoomed ? 'Reduzir' : 'Ampliar'}
+              >
+                {zoomed ? <ZoomOut size={20} /> : <ZoomIn size={20} />}
+              </button>
+            </div>
 
-              {/* Imagem Principal */}
-              <div className="lightbox-image-wrapper">
-                <img
-                  src={apiService.getPhotoUrl(currentPhoto.name)}
-                  alt={currentPhoto.name}
-                  className="lightbox-main-img"
-                />
+            <div
+              className={`ab-viewer-stage ${zoomed ? 'zoomed' : ''}`}
+              onTouchStart={onTouchStart}
+              onTouchEnd={onTouchEnd}
+              onClick={(e) => {
+                // Mouse: clique no fundo fecha, duplo clique na imagem dá zoom
+                if (e.target === e.currentTarget && !('ontouchstart' in window)) closeViewer();
+              }}
+            >
+              <img
+                key={currentPhoto.name}
+                src={apiService.getPhotoUrl(currentPhoto.name)}
+                alt={currentPhoto.name}
+                draggable={false}
+                onDoubleClick={() => setZoomed((z) => !z)}
+              />
+            </div>
 
-                {/* Botões de Navegação Anterior / Próximo */}
-                {filteredPhotos.length > 1 && (
-                  <>
-                    <button
-                      type="button"
-                      className="lightbox-nav-btn prev"
-                      onClick={handlePrev}
-                      title="Foto Anterior (Seta Esquerda)"
-                    >
-                      <ChevronLeft size={32} />
-                    </button>
-                    <button
-                      type="button"
-                      className="lightbox-nav-btn next"
-                      onClick={handleNext}
-                      title="Próxima Foto (Seta Direita)"
-                    >
-                      <ChevronRight size={32} />
-                    </button>
-                  </>
-                )}
-              </div>
+            {total > 1 && (
+              <>
+                <button type="button" className="ab-viewer-nav prev" onClick={goPrev} aria-label="Foto anterior">
+                  <ChevronLeft size={30} />
+                </button>
+                <button type="button" className="ab-viewer-nav next" onClick={goNext} aria-label="Próxima foto">
+                  <ChevronRight size={30} />
+                </button>
+              </>
+            )}
+
+            <div className="ab-viewer-bottom">
+              <button
+                type="button"
+                className="ab-btn primary"
+                onClick={() => handleSetAsAvatar(currentPhoto)}
+                disabled={isSettingAvatar}
+              >
+                <UserCheck size={18} />
+                <span>{isSettingAvatar ? 'Atualizando...' : 'Usar como perfil'}</span>
+              </button>
+              <button type="button" className="ab-btn" onClick={() => handleDownload(currentPhoto)}>
+                <Download size={18} />
+                <span>Baixar</span>
+              </button>
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

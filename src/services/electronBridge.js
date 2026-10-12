@@ -56,13 +56,23 @@ export const electronBridge = {
       return [];
     }
   },
-  selectDesktopSource: async (sourceId, withAudio, sourceName) => {
+  selectDesktopSource: async (sourceId, withAudio, sourceName, excludeApps) => {
     if (!isElectron || !window.electronAPI?.selectDesktopSource) return { success: false };
     try {
-      return await window.electronAPI.selectDesktopSource(sourceId, withAudio, sourceName);
+      return await window.electronAPI.selectDesktopSource(sourceId, withAudio, sourceName, excludeApps);
     } catch (e) {
       console.warn('[ElectronBridge] Falha ao selecionar source:', e);
       return { success: false, error: e.message };
+    }
+  },
+  getExcludableAudioApps: async () => {
+    if (!isElectron || !window.electronAPI?.getExcludableAudioApps) return [];
+    try {
+      const res = await window.electronAPI.getExcludableAudioApps();
+      return res && Array.isArray(res.apps) ? res.apps : [];
+    } catch (e) {
+      console.warn('[ElectronBridge] Falha ao listar apps para excluir áudio:', e);
+      return [];
     }
   },
   cancelDesktopSource: async () => {

@@ -1,42 +1,56 @@
 /**
  * AudioWorkletProcessor para streaming de áudio PCM de processo/janela com fidelidade cristalina.
  * Recebe buffers PCM 16-bit Little-Endian estéreo a 48.000 Hz e alimenta o pipeline Web Audio.
+ *
+ * Suporta MÚLTIPLAS fontes simultâneas: cada fonte (identificada por `id`) possui seu próprio
+ * ring buffer e o resultado final é a soma de todas (mixagem), com limitador simples contra clipping.
  */
+const BUFFER_SIZE = 96000; // 2 s por fonte a 48 kHz
+const PREBUFFER_TARGET = 960; // 20 ms de pré-buffer inicial para partida suave
+const MAX_HEALTHY_BUFFER = 9600; // 200 ms: acima disso descarta excesso para não acumular latência
+const IDLE_BLOCKS_BEFORE_REMOVE = 2000; // ~5 s sem dados (128 amostras/bloco) remove a fonte
+
 class WindowAudioProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    // Capacidade do ring buffer: 96000 samples por canal (2 segundos de buffer circular a 48kHz)
-    this.bufferSize = 96000;
-    this.bufferLeft = new Float32Array(this.bufferSize);
-    this.bufferRight = new Float32Array(this.bufferSize);
-    this.writeIndex = 0;
-    this.readIndex = 0;
-    this.samplesAvailable = 0;
-    this.hasStartedPlayback = false;
-    this.prebufferTarget = 960; // 20ms de pré-buffer inicial para partida suave
+    this.sources = new Map(); // id -> estado do ring buffer
 
     this.port.onmessage = (event) => {
       const data = event.data;
       if (!data) return;
 
       if (data.type === 'clear') {
-        this.writeIndex = 0;
-        this.readIndex = 0;
-        this.samplesAvailable = 0;
-        this.hasStartedPlayback = false;
+        this.sources.clear();
         return;
       }
 
       if (data.type === 'pcm' && data.buffer) {
-        this.pushPCM(data.buffer);
+        this.pushPCM(data.id || 'default', data.buffer);
       }
     };
   }
 
+  getSource(id) {
+    let src = this.sources.get(id);
+    if (!src) {
+      src = {
+        left: new Float32Array(BUFFER_SIZE),
+        right: new Float32Array(BUFFER_SIZE),
+        writeIndex: 0,
+        readIndex: 0,
+        available: 0,
+        started: false,
+        idle: 0
+      };
+      this.sources.set(id, src);
+    }
+    return src;
+  }
+
   /**
-   * Converte PCM 16-bit estéreo Little-Endian (L, R, L, R...) para Float32 e insere no ring buffer
+   * Converte PCM 16-bit estéreo Little-Endian (L, R, L, R...) para Float32 e insere no ring buffer da fonte
    */
-  pushPCM(input) {
+  pushPCM(id, input) {
     if (!input) return;
 
     try {
@@ -58,100 +72,89 @@ class WindowAudioProcessor extends AudioWorkletProcessor {
       const byteLength = view.byteLength;
       if (byteLength < 4) return;
 
+      const src = this.getSource(id);
+      src.idle = 0;
+
       // Cada frame estéreo possui 4 bytes (2 bytes L + 2 bytes R, 16-bit signed)
       const numFrames = Math.floor(byteLength / 4);
 
       for (let i = 0; i < numFrames; i++) {
         const offset = i * 4;
-        // Leitura explícita Little-Endian e normalização para -1.0 a 1.0
-        const leftSample = view.getInt16(offset, true) / 32768.0;
-        const rightSample = view.getInt16(offset + 2, true) / 32768.0;
+        src.left[src.writeIndex] = view.getInt16(offset, true) / 32768.0;
+        src.right[src.writeIndex] = view.getInt16(offset + 2, true) / 32768.0;
 
-        this.bufferLeft[this.writeIndex] = leftSample;
-        this.bufferRight[this.writeIndex] = rightSample;
+        src.writeIndex = (src.writeIndex + 1) % BUFFER_SIZE;
 
-        this.writeIndex = (this.writeIndex + 1) % this.bufferSize;
-
-        if (this.samplesAvailable < this.bufferSize) {
-          this.samplesAvailable++;
+        if (src.available < BUFFER_SIZE) {
+          src.available++;
         } else {
           // Buffer cheio: avança leitura para manter sincronia
-          this.readIndex = (this.readIndex + 1) % this.bufferSize;
+          src.readIndex = (src.readIndex + 1) % BUFFER_SIZE;
         }
       }
 
-      // Prevenção de acúmulo de latência: se o buffer ultrapassar 200ms (~9600 amostras), descarta excesso
-      const maxHealthyBuffer = 9600;
-      if (this.samplesAvailable > maxHealthyBuffer) {
-        const discard = this.samplesAvailable - maxHealthyBuffer;
-        this.readIndex = (this.readIndex + discard) % this.bufferSize;
-        this.samplesAvailable = maxHealthyBuffer;
+      // Prevenção de acúmulo de latência
+      if (src.available > MAX_HEALTHY_BUFFER) {
+        const discard = src.available - MAX_HEALTHY_BUFFER;
+        src.readIndex = (src.readIndex + discard) % BUFFER_SIZE;
+        src.available = MAX_HEALTHY_BUFFER;
       }
     } catch (e) {
       // Previne qualquer interrupção na thread de áudio
     }
   }
 
-  process(inputs, outputs, parameters) {
+  process(inputs, outputs) {
     const output = outputs[0];
     if (!output || output.length === 0) return true;
 
-    const numChannels = output.length;
     const outLeft = output[0];
-    const outRight = numChannels > 1 ? output[1] : null;
+    const outRight = output.length > 1 ? output[1] : null;
     const blockSize = outLeft.length; // 128 samples
 
-    // Aguardar pré-buffer inicial somente na primeira inicialização ou após silêncio total
-    if (!this.hasStartedPlayback) {
-      if (this.samplesAvailable >= this.prebufferTarget) {
-        this.hasStartedPlayback = true;
-      } else {
-        outLeft.fill(0);
-        if (outRight) outRight.fill(0);
-        return true;
+    outLeft.fill(0);
+    if (outRight) outRight.fill(0);
+
+    for (const [id, src] of this.sources) {
+      // Aguardar pré-buffer inicial somente na primeira inicialização ou após silêncio total
+      if (!src.started) {
+        if (src.available >= PREBUFFER_TARGET) {
+          src.started = true;
+        } else {
+          src.idle++;
+          if (src.idle > IDLE_BLOCKS_BEFORE_REMOVE) this.sources.delete(id);
+          continue;
+        }
+      }
+
+      const count = Math.min(blockSize, src.available);
+      for (let i = 0; i < count; i++) {
+        const l = src.left[src.readIndex];
+        const r = src.right[src.readIndex];
+        src.readIndex = (src.readIndex + 1) % BUFFER_SIZE;
+
+        if (outRight) {
+          outLeft[i] += l;
+          outRight[i] += r;
+        } else {
+          outLeft[i] += (l + r) * 0.5;
+        }
+      }
+      src.available -= count;
+
+      if (src.available === 0) {
+        src.started = false; // silêncio: re-bufferiza antes de voltar a tocar
       }
     }
 
-    // Se temos amostras suficientes para o bloco completo de 128
-    if (this.samplesAvailable >= blockSize) {
-      for (let i = 0; i < blockSize; i++) {
-        const l = this.bufferLeft[this.readIndex];
-        const r = this.bufferRight[this.readIndex];
-        this.readIndex = (this.readIndex + 1) % this.bufferSize;
-
-        if (outRight) {
-          outLeft[i] = l;
-          outRight[i] = r;
-        } else {
-          outLeft[i] = (l + r) * 0.5;
-        }
+    // Limitador simples (soma de várias fontes pode ultrapassar 1.0)
+    for (let i = 0; i < blockSize; i++) {
+      if (outLeft[i] > 1) outLeft[i] = 1;
+      else if (outLeft[i] < -1) outLeft[i] = -1;
+      if (outRight) {
+        if (outRight[i] > 1) outRight[i] = 1;
+        else if (outRight[i] < -1) outRight[i] = -1;
       }
-      this.samplesAvailable -= blockSize;
-    } else if (this.samplesAvailable > 0) {
-      // Drenar as amostras parciais restantes sem cortar bruscamente o som
-      const count = this.samplesAvailable;
-      for (let i = 0; i < count; i++) {
-        const l = this.bufferLeft[this.readIndex];
-        const r = this.bufferRight[this.readIndex];
-        this.readIndex = (this.readIndex + 1) % this.bufferSize;
-
-        if (outRight) {
-          outLeft[i] = l;
-          outRight[i] = r;
-        } else {
-          outLeft[i] = (l + r) * 0.5;
-        }
-      }
-      for (let i = count; i < blockSize; i++) {
-        outLeft[i] = 0;
-        if (outRight) outRight[i] = 0;
-      }
-      this.samplesAvailable = 0;
-    } else {
-      // Silêncio
-      outLeft.fill(0);
-      if (outRight) outRight.fill(0);
-      this.hasStartedPlayback = false;
     }
 
     return true;

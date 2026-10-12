@@ -4,6 +4,7 @@
   "version": "1.0.2",
   "description": "LoveChat - Streaming P2P, Voz, Vídeo e Compartilhamento de Tela",
   "main": "electron-main.js",
+  "author": "Nay",
   "scripts": {
     "start": "node server.js",
     "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,VITE\" -c \"cyan,magenta\" \"node server.js\" \"vite\"",

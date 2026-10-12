@@ -59,11 +59,13 @@ class AudioWorkletManager {
     }
   }
 
-  feedPCM(arrayBuffer) {
+  // sourceId identifica a fonte (PID); fontes diferentes são somadas no worklet em vez de intercaladas
+  feedPCM(arrayBuffer, sourceId = 'default') {
     if (!this.workletNode || !arrayBuffer) return;
     try {
       this.workletNode.port.postMessage({
         type: 'pcm',
+        id: sourceId,
         buffer: arrayBuffer
       });
     } catch (err) {

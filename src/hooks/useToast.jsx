@@ -10,7 +10,9 @@ export function ToastProvider({ children }) {
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast({ show: true, message, type });
+    }, 0);
     timeoutRef.current = setTimeout(() => {
       setToast((prev) => ({ ...prev, show: false }));
       timeoutRef.current = null;

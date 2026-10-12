@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   // Capturador de telas e janelas nativo do Electron
   getDesktopSources: () => ipcRenderer.invoke('get-desktop-sources'),
-  selectDesktopSource: (sourceId, withAudio, sourceName) => ipcRenderer.invoke('select-desktop-source', { sourceId, withAudio, sourceName }),
+  selectDesktopSource: (sourceId, withAudio, sourceName, excludeApps) => ipcRenderer.invoke('select-desktop-source', { sourceId, withAudio, sourceName, excludeApps }),
+  getExcludableAudioApps: () => ipcRenderer.invoke('get-excludable-audio-apps'),
   cancelDesktopSource: () => ipcRenderer.invoke('cancel-desktop-source'),
   onOpenScreenPicker: (callback) => {
     ipcRenderer.on('open-native-screen-picker', () => callback());

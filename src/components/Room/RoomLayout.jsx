@@ -5,20 +5,25 @@ import { AudioMixerModal } from '../Modals/AudioMixerModal';
 import { QualityPresetsModal } from '../Modals/QualityPresetsModal';
 import { ScreenPickerModal } from '../Modals/ScreenPickerModal';
 import { PhotoAlbumModal } from '../Modals/PhotoAlbumModal';
+import { CameraSettingsModal } from '../Modals/CameraSettingsModal';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { electronBridge, isElectron } from '../../services/electronBridge';
+import { useWebRTC } from '../../context/WebRTCContext';
 
 export function RoomLayout() {
+  const { isTheaterMode, setIsTheaterMode } = useWebRTC();
   const [isMixerOpen, setIsMixerOpen] = useState(false);
   const [isQualityOpen, setIsQualityOpen] = useState(false);
   const [isScreenPickerOpen, setIsScreenPickerOpen] = useState(false);
   const [isAlbumOpen, setIsAlbumOpen] = useState(false);
+  const [isCameraSettingsOpen, setIsCameraSettingsOpen] = useState(false);
 
   const closeAllModals = useCallback(() => {
     setIsMixerOpen(false);
     setIsQualityOpen(false);
     setIsScreenPickerOpen(false);
     setIsAlbumOpen(false);
+    setIsCameraSettingsOpen(false);
   }, []);
 
   const handleOpenMixer = useCallback(() => setIsMixerOpen(true), []);
@@ -33,6 +38,9 @@ export function RoomLayout() {
   const handleOpenAlbum = useCallback(() => setIsAlbumOpen(true), []);
   const handleCloseAlbum = useCallback(() => setIsAlbumOpen(false), []);
 
+  const handleOpenCamSettings = useCallback(() => setIsCameraSettingsOpen(true), []);
+  const handleCloseCamSettings = useCallback(() => setIsCameraSettingsOpen(false), []);
+
   useKeyboardShortcuts({ closeAllModals });
 
   // Ouvir requisição de captura de tela disparada pelo Electron
@@ -45,12 +53,21 @@ export function RoomLayout() {
 
   return (
     <div className="room-layout">
+      {/* Backdrop para fechar barra lateral no mobile quando aberta */}
+      {!isTheaterMode && (
+        <div
+          className="sidebar-mobile-backdrop"
+          onClick={() => setIsTheaterMode(true)}
+          aria-label="Fechar barra lateral"
+        />
+      )}
       <Sidebar onOpenAlbum={handleOpenAlbum} />
       <StreamArea
         onOpenMixer={handleOpenMixer}
         onOpenQuality={handleOpenQuality}
         onOpenScreenPicker={handleOpenScreenPicker}
         onOpenAlbum={handleOpenAlbum}
+        onOpenCamSettings={handleOpenCamSettings}
       />
 
       {/* Modais */}
@@ -69,6 +86,10 @@ export function RoomLayout() {
       <PhotoAlbumModal
         isOpen={isAlbumOpen}
         onClose={handleCloseAlbum}
+      />
+      <CameraSettingsModal
+        isOpen={isCameraSettingsOpen}
+        onClose={handleCloseCamSettings}
       />
     </div>
   );
