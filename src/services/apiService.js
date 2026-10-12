@@ -179,6 +179,37 @@ export class ApiService {
     return await this.updateDb({ profileUpdate });
   }
 
+  async uploadAvatar(profileId, fileOrBlob) {
+    const url = this.getFullUrl(`/api/avatar/${encodeURIComponent(profileId)}`);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: this.getHeaders({
+        'Content-Type': 'image/jpeg'
+      }),
+      body: fileOrBlob
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  }
+
+  async deleteAvatar(profileId) {
+    const url = this.getFullUrl(`/api/avatar/${encodeURIComponent(profileId)}`);
+    const res = await fetch(url, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  }
+
+  getAvatarUrl(avatarPath) {
+    if (!avatarPath) return null;
+    if (avatarPath.startsWith('data:') || avatarPath.startsWith('http://') || avatarPath.startsWith('https://')) {
+      return avatarPath;
+    }
+    return this.getFullUrl(avatarPath);
+  }
+
   async updateNotes(notes) {
     return await this.updateDb({ notes });
   }

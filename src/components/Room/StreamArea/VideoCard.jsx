@@ -39,6 +39,7 @@ export function VideoCard({
   } = useWebRTC();
   const [localFitMode, setLocalFitMode] = useState(null);
   const [playBlocked, setPlayBlocked] = useState(false);
+  const [avatarErr, setAvatarErr] = useState(false);
 
   const tryPlay = (el) => {
     if (!el) return;
@@ -113,12 +114,12 @@ export function VideoCard({
         />
       ) : (
         <div className="avatar-placeholder">
-          {profile.avatar && (
-            <img src={profile.avatar} className="avatar-backdrop-img" alt="Backdrop" />
+          {profile.avatar && !avatarErr && (
+            <img src={profile.avatar} className="avatar-backdrop-img" alt="Backdrop" onError={() => setAvatarErr(true)} />
           )}
           <div className={`avatar-frame ${isSpeaking ? 'speaking' : ''} ${isSpotlight ? 'spotlight-frame' : ''}`}>
-            {profile.avatar ? (
-              <img src={profile.avatar} className="avatar-img" alt="Avatar" />
+            {profile.avatar && !avatarErr ? (
+              <img src={profile.avatar} className="avatar-img" alt="Avatar" onError={() => setAvatarErr(true)} />
             ) : (
               <Heart size={44} />
             )}

@@ -16,6 +16,12 @@ try {
 } catch (e) {}
 
 const DB_FILE = path.join(DATA_DIR, 'database.json');
+const AVATAR_DIR = path.join(DATA_DIR, 'avatars');
+try {
+  if (!fs.existsSync(AVATAR_DIR)) {
+    fs.mkdirSync(AVATAR_DIR, { recursive: true });
+  }
+} catch (e) {}
 
 const cors = require('cors');
 app.use(cors({ origin: true, credentials: true }));
@@ -40,6 +46,7 @@ function rateLimiter(req, res, next) {
     p.startsWith('/peerjs') ||
     p.startsWith('/api/room') ||
     p.startsWith('/api/my-ip') ||
+    p.startsWith('/api/avatar') ||
     p.endsWith('.js') ||
     p.endsWith('.css') ||
     p.endsWith('.png') ||
@@ -127,7 +134,8 @@ function tokenAuthMiddleware(req, res, next) {
   if (
     !p.startsWith('/api/') ||
     p === '/api/my-ip' ||
-    p === '/api/auth/verify'
+    p === '/api/auth/verify' ||
+    (req.method === 'GET' && p.startsWith('/api/avatar/'))
   ) {
     return next();
   }
@@ -240,6 +248,29 @@ function readDB() {
       }
     }
 
+    // Migração automática de avatares legados em base64 para arquivos reais em disco
+    ['user1', 'user2'].forEach((u) => {
+      const prof = data.profiles && data.profiles[u];
+      if (prof && prof.avatar && typeof prof.avatar === 'string' && prof.avatar.startsWith('data:image/')) {
+        try {
+          if (!fs.existsSync(AVATAR_DIR)) {
+            fs.mkdirSync(AVATAR_DIR, { recursive: true });
+          }
+          const base64Data = prof.avatar.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+          const filePath = path.join(AVATAR_DIR, `${u}.jpg`);
+          fs.writeFileSync(filePath, buffer);
+          prof.avatar = `/api/avatar/${u}?t=${Date.now()}`;
+          if (u === 'user1') data.hostAvatar = prof.avatar;
+          if (u === 'user2') data.guestAvatar = prof.avatar;
+          changed = true;
+          console.log(`[DB] Avatar legado em base64 de ${u} migrado com sucesso para arquivo real: ${filePath}`);
+        } catch (err) {
+          console.warn(`[DB] Falha ao migrar avatar em base64 de ${u}:`, err);
+        }
+      }
+    });
+
     if (changed) {
       writeDB(data);
     }
@@ -261,6 +292,100 @@ app.get('/api/db', (req, res) => {
     ...dbData,
     occupiedProfiles: getOccupiedProfiles()
   });
+});
+
+// ==========================================
+// ENDPOINTS DE AVATAR (ARQUIVOS REAIS EM DISCO)
+// ==========================================
+
+// Servir avatar como imagem real (com cache HTTP inteligente)
+app.get('/api/avatar/:profileId', (req, res) => {
+  const { profileId } = req.params;
+  const candidates = [
+    path.join(AVATAR_DIR, `${profileId}.jpg`),
+    path.join(__dirname, 'avatars', `${profileId}.jpg`),
+    path.join(process.cwd(), 'avatars', `${profileId}.jpg`)
+  ];
+
+  const filePath = candidates.find((f) => fs.existsSync(f));
+  if (!filePath) {
+    return res.status(404).send('Avatar não encontrado');
+  }
+
+  res.setHeader('Content-Type', 'image/jpeg');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+  fs.createReadStream(filePath).pipe(res);
+});
+
+// Upload de avatar como arquivo binário real (ou fallback JSON)
+app.post(
+  '/api/avatar/:profileId',
+  express.raw({ type: ['image/*', 'application/octet-stream'], limit: '10mb' }),
+  (req, res) => {
+    const { profileId } = req.params;
+    if (!profileId || !['user1', 'user2'].includes(profileId)) {
+      return res.status(400).json({ error: 'Perfil inválido' });
+    }
+
+    let buffer = null;
+    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      buffer = req.body;
+    } else if (req.body && req.body.image) {
+      const raw = req.body.image.replace(/^data:image\/\w+;base64,/, '');
+      buffer = Buffer.from(raw, 'base64');
+    }
+
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ error: 'Nenhum dado de imagem recebido' });
+    }
+
+    try {
+      if (!fs.existsSync(AVATAR_DIR)) {
+        fs.mkdirSync(AVATAR_DIR, { recursive: true });
+      }
+
+      const filePath = path.join(AVATAR_DIR, `${profileId}.jpg`);
+      fs.writeFileSync(filePath, buffer);
+
+      const db = readDB();
+      const avatarUrl = `/api/avatar/${profileId}?t=${Date.now()}`;
+      if (db.profiles && db.profiles[profileId]) {
+        db.profiles[profileId].avatar = avatarUrl;
+        if (profileId === 'user1') db.hostAvatar = avatarUrl;
+        if (profileId === 'user2') db.guestAvatar = avatarUrl;
+        writeDB(db);
+      }
+
+      console.log(`[DB] Avatar salvo como arquivo real para ${profileId}: ${filePath} (${buffer.length} bytes)`);
+      res.json({ success: true, avatarUrl });
+    } catch (err) {
+      console.error(`[DB] Erro ao salvar avatar de ${profileId}:`, err);
+      res.status(500).json({ error: 'Erro ao salvar avatar no disco' });
+    }
+  }
+);
+
+// Remover avatar (deletar arquivo físico e atualizar banco)
+app.delete('/api/avatar/:profileId', (req, res) => {
+  const { profileId } = req.params;
+  const filePath = path.join(AVATAR_DIR, `${profileId}.jpg`);
+
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+    } catch (e) {}
+  }
+
+  const db = readDB();
+  if (db.profiles && db.profiles[profileId]) {
+    db.profiles[profileId].avatar = null;
+    if (profileId === 'user1') db.hostAvatar = null;
+    if (profileId === 'user2') db.guestAvatar = null;
+    writeDB(db);
+  }
+
+  res.json({ success: true });
 });
 
 // Helper para detectar o IP da interface do ZeroTier e da rede local
@@ -444,15 +569,30 @@ app.post('/api/db', (req, res) => {
     const { id, name, avatar } = incoming.profileUpdate;
     if (id && current.profiles && current.profiles[id]) {
       if (name !== undefined) current.profiles[id].name = name;
-      if (avatar !== undefined) current.profiles[id].avatar = avatar;
+      if (avatar !== undefined) {
+        if (typeof avatar === 'string' && avatar.startsWith('data:image/')) {
+          try {
+            if (!fs.existsSync(AVATAR_DIR)) fs.mkdirSync(AVATAR_DIR, { recursive: true });
+            const raw = avatar.replace(/^data:image\/\w+;base64,/, '');
+            const buf = Buffer.from(raw, 'base64');
+            const filePath = path.join(AVATAR_DIR, `${id}.jpg`);
+            fs.writeFileSync(filePath, buf);
+            current.profiles[id].avatar = `/api/avatar/${id}?t=${Date.now()}`;
+          } catch (e) {
+            current.profiles[id].avatar = avatar;
+          }
+        } else {
+          current.profiles[id].avatar = avatar;
+        }
+      }
 
       // Mantém compatibilidade com campos legados
       if (id === 'user1') {
         if (name !== undefined) current.hostName = name;
-        if (avatar !== undefined) current.hostAvatar = avatar;
+        if (avatar !== undefined) current.hostAvatar = current.profiles[id].avatar;
       } else if (id === 'user2') {
         if (name !== undefined) current.guestName = name;
-        if (avatar !== undefined) current.guestAvatar = avatar;
+        if (avatar !== undefined) current.guestAvatar = current.profiles[id].avatar;
       }
     }
   }

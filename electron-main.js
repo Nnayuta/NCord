@@ -303,6 +303,24 @@ try {
       if (fs.existsSync(src)) fs.copyFileSync(src, path.join(targetCerts, f));
     });
   }
+
+  // Migrar pasta de avatares reais existentes
+  const localAvatars = path.join(__dirname, 'avatars');
+  const targetAvatars = path.join(userDataDir, 'avatars');
+  if (fs.existsSync(localAvatars)) {
+    if (!fs.existsSync(targetAvatars)) {
+      fs.mkdirSync(targetAvatars, { recursive: true });
+    }
+    try {
+      fs.readdirSync(localAvatars).forEach(f => {
+        const src = path.join(localAvatars, f);
+        const dest = path.join(targetAvatars, f);
+        if (!fs.existsSync(dest) && fs.statSync(src).isFile()) {
+          fs.copyFileSync(src, dest);
+        }
+      });
+    } catch (e) {}
+  }
 } catch (e) {
   console.warn('[Electron] Aviso ao inicializar pasta userData:', e);
 }

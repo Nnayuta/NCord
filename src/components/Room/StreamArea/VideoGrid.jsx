@@ -123,6 +123,7 @@ export function VideoGrid({ onOpenScreenPicker, onOpenCamSettings }) {
         {isBothSharing && dualScreenViewMode === 'split' && (
           <>
             <ScreenShareCard
+              key={`remote-${remoteScreenStream?.id || 'none'}`}
               stream={remoteScreenStream}
               isLocal={false}
               ownerLabel={`Tela de ${otherProfile.name || 'Parceiro'}`}
@@ -130,6 +131,7 @@ export function VideoGrid({ onOpenScreenPicker, onOpenCamSettings }) {
               cardId="screen-share-remote"
             />
             <ScreenShareCard
+              key={`local-${localScreenStream?.id || 'none'}`}
               stream={localScreenStream}
               isLocal={true}
               ownerLabel="Sua Transmissão"
@@ -142,6 +144,7 @@ export function VideoGrid({ onOpenScreenPicker, onOpenCamSettings }) {
         {/* Caso 2: Visualizar Tela Remota do Parceiro */}
         {((isBothSharing && dualScreenViewMode === 'remote') || (!isBothSharing && isRemoteScreenSharing)) && (
           <ScreenShareCard
+            key={`remote-${remoteScreenStream?.id || 'none'}`}
             stream={remoteScreenStream}
             isLocal={false}
             ownerLabel={`Tela de ${otherProfile.name || 'Parceiro'}`}
@@ -153,6 +156,7 @@ export function VideoGrid({ onOpenScreenPicker, onOpenCamSettings }) {
         {/* Caso 3: Visualizar Minha Tela */}
         {((isBothSharing && dualScreenViewMode === 'local') || (!isBothSharing && isLocalScreenSharing)) && (
           <ScreenShareCard
+            key={`local-${localScreenStream?.id || 'none'}`}
             stream={localScreenStream}
             isLocal={true}
             ownerLabel="Sua Transmissão"

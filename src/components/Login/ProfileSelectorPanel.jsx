@@ -19,6 +19,8 @@ export function ProfileSelectorPanel() {
   const { joinRoom } = useWebRTC();
 
   const [editingProfileId, setEditingProfileId] = useState(null);
+  const [u1AvatarErr, setU1AvatarErr] = useState(false);
+  const [u2AvatarErr, setU2AvatarErr] = useState(false);
   const fileInputRefUser1 = useRef(null);
   const fileInputRefUser2 = useRef(null);
 
@@ -122,8 +124,13 @@ export function ProfileSelectorPanel() {
               onClick={(e) => handleAvatarClick(e, 'user1')}
               title={isUser1Occupied ? 'Perfil já conectado na chamada' : 'Clique para trocar a foto de perfil'}
             >
-              {profiles.user1.avatar ? (
-                <img src={profiles.user1.avatar} className="profile-choice-avatar" alt="Perfil 1" />
+              {profiles.user1.avatar && !u1AvatarErr ? (
+                <img
+                  src={profiles.user1.avatar}
+                  className="profile-choice-avatar"
+                  alt="Perfil 1"
+                  onError={() => setU1AvatarErr(true)}
+                />
               ) : (
                 <div className="profile-choice-icon"><User size={22} /></div>
               )}
@@ -181,8 +188,13 @@ export function ProfileSelectorPanel() {
               onClick={(e) => handleAvatarClick(e, 'user2')}
               title={isUser2Occupied ? 'Perfil já conectado na chamada' : 'Clique para trocar a foto de perfil'}
             >
-              {profiles.user2.avatar ? (
-                <img src={profiles.user2.avatar} className="profile-choice-avatar" alt="Perfil 2" />
+              {profiles.user2.avatar && !u2AvatarErr ? (
+                <img
+                  src={profiles.user2.avatar}
+                  className="profile-choice-avatar"
+                  alt="Perfil 2"
+                  onError={() => setU2AvatarErr(true)}
+                />
               ) : (
                 <div className="profile-choice-icon"><User size={22} /></div>
               )}

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Heart, MicOff, VideoOff, Eye, EyeOff, Minus, Maximize2 } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 import { useProfiles } from '../../../context/ProfileContext';
@@ -23,6 +23,8 @@ export function FloatingParticipantAvatars() {
     remoteCameraFilter
   } = useWebRTC();
   const { myProfile, otherProfile } = useProfiles();
+  const [localAvatarErr, setLocalAvatarErr] = useState(false);
+  const [remoteAvatarErr, setRemoteAvatarErr] = useState(false);
 
   if (isFloatingAvatarsHidden) {
     return (
@@ -124,8 +126,13 @@ export function FloatingParticipantAvatars() {
             />
           ) : (
             <div className="mini-avatar-placeholder">
-              {myProfile.avatar ? (
-                <img src={myProfile.avatar} className="mini-avatar-img" alt="Você" />
+              {myProfile.avatar && !localAvatarErr ? (
+                <img
+                  src={myProfile.avatar}
+                  className="mini-avatar-img"
+                  alt="Você"
+                  onError={() => setLocalAvatarErr(true)}
+                />
               ) : (
                 <Heart size={20} color="#a855f7" />
               )}
@@ -159,8 +166,13 @@ export function FloatingParticipantAvatars() {
             />
           ) : (
             <div className="mini-avatar-placeholder">
-              {otherProfile.avatar ? (
-                <img src={otherProfile.avatar} className="mini-avatar-img" alt="Parceiro" />
+              {otherProfile.avatar && !remoteAvatarErr ? (
+                <img
+                  src={otherProfile.avatar}
+                  className="mini-avatar-img"
+                  alt="Parceiro"
+                  onError={() => setRemoteAvatarErr(true)}
+                />
               ) : (
                 <Heart size={20} color="#f43f8e" />
               )}

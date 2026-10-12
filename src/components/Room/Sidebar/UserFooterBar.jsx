@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Settings, Heart, Mic, MicOff, Headphones } from 'lucide-react';
 import { useProfiles } from '../../../context/ProfileContext';
 import { useWebRTC } from '../../../context/WebRTCContext';
@@ -10,6 +10,7 @@ export function UserFooterBar({ onOpenSettings }) {
   const { myProfile, activeProfileId } = useProfiles();
   const { isMicMuted, toggleMic, isDeafened, toggleDeafen, isLocalSpeaking } = useWebRTC();
   const { hasUpdate } = useAutoUpdate();
+  const [avatarErr, setAvatarErr] = useState(false);
 
   const isPink = activeProfileId === 'user2';
 
@@ -23,8 +24,13 @@ export function UserFooterBar({ onOpenSettings }) {
         style={{ cursor: 'pointer' }}
       >
         <div className={`sidebar-user-avatar-wrap ${isLocalSpeaking ? 'speaking-ring' : ''} ${isPink ? 'pink-dot' : 'purple-dot'}`}>
-          {myProfile.avatar ? (
-            <img src={myProfile.avatar} className="sidebar-footer-avatar-img" alt="Você" />
+          {myProfile.avatar && !avatarErr ? (
+            <img
+              src={myProfile.avatar}
+              className="sidebar-footer-avatar-img"
+              alt="Você"
+              onError={() => setAvatarErr(true)}
+            />
           ) : (
             <div className="sidebar-footer-default-avatar">
               <Heart size={16} color={isPink ? '#f43f8e' : '#a855f7'} />

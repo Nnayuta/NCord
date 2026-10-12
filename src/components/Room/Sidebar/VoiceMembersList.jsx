@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Heart, Mic, MicOff, Video, VideoOff, Volume2, Tv, Sparkles } from 'lucide-react';
 import { useProfiles } from '../../../context/ProfileContext';
 import { useWebRTC } from '../../../context/WebRTCContext';
 
 export function VoiceMembersList({ onOpenSettings }) {
   const { myProfile, otherProfile } = useProfiles();
+  const [localAvatarErr, setLocalAvatarErr] = useState(false);
+  const [remoteAvatarErr, setRemoteAvatarErr] = useState(false);
   const {
     isMicMuted,
     isVideoOff,
@@ -45,8 +47,13 @@ export function VoiceMembersList({ onOpenSettings }) {
           style={{ cursor: 'pointer' }}
         >
           <div className="member-avatar-wrapper">
-            {myProfile.avatar ? (
-              <img src={myProfile.avatar} className="sidebar-avatar-img" alt="Você" />
+            {myProfile.avatar && !localAvatarErr ? (
+              <img
+                src={myProfile.avatar}
+                className="sidebar-avatar-img"
+                alt="Você"
+                onError={() => setLocalAvatarErr(true)}
+              />
             ) : (
               <div className="sidebar-default-avatar"><Heart size={14} /></div>
             )}
@@ -75,8 +82,13 @@ export function VoiceMembersList({ onOpenSettings }) {
           style={{ cursor: 'pointer' }}
         >
           <div className="member-avatar-wrapper">
-            {otherProfile.avatar ? (
-              <img src={otherProfile.avatar} className="sidebar-avatar-img" alt="Parceiro" />
+            {otherProfile.avatar && !remoteAvatarErr ? (
+              <img
+                src={otherProfile.avatar}
+                className="sidebar-avatar-img"
+                alt="Parceiro"
+                onError={() => setRemoteAvatarErr(true)}
+              />
             ) : (
               <div className="sidebar-default-avatar"><Heart size={14} /></div>
             )}

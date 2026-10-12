@@ -28,6 +28,14 @@ class AudioWorkletManager {
         latencyHint: 'interactive'
       });
 
+      if (this.audioCtx.state === 'suspended') {
+        try {
+          await this.audioCtx.resume();
+        } catch (e) {
+          console.warn('[AudioWorkletManager] AudioContext resume pendente de interação do usuário:', e);
+        }
+      }
+
       // Carregar módulo AudioWorklet
       try {
         await this.audioCtx.audioWorklet.addModule('audio-stream-processor.js');

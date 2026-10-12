@@ -37,11 +37,8 @@ export function EditProfileModal({ isOpen, onClose, profileId }) {
     if (file) {
       setSelectedFile(file);
       setIsAvatarRemoved(false);
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setPreviewAvatar(ev.target.result);
-      };
-      reader.readAsDataURL(file);
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewAvatar(objectUrl);
     }
   };
 
@@ -95,7 +92,12 @@ export function EditProfileModal({ isOpen, onClose, profileId }) {
               title="Clique para escolher uma imagem"
             >
               {previewAvatar ? (
-                <img src={previewAvatar} alt="Prévia" className="profile-avatar-preview-img" />
+                <img
+                  src={previewAvatar}
+                  alt="Prévia"
+                  className="profile-avatar-preview-img"
+                  onError={() => setPreviewAvatar(null)}
+                />
               ) : (
                 <div className="profile-avatar-preview-placeholder">
                   <Heart size={44} color={isPink ? '#f43f8e' : '#a855f7'} />

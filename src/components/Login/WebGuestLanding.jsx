@@ -29,6 +29,8 @@ export function WebGuestLanding() {
   const [errorMsg, setErrorMsg] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState('');
+  const [hostAvatarErr, setHostAvatarErr] = useState(false);
+  const [guestAvatarErr, setGuestAvatarErr] = useState(false);
 
   const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
   const targetGuestId = urlParams?.get('profile') === 'user1' ? 'user1' : 'user2';
@@ -193,8 +195,13 @@ export function WebGuestLanding() {
       {/* Banner de Recepção do Anfitrião */}
       <div className="web-host-invite-card">
         <div className="web-host-avatar-ring">
-          {hostProfile.avatar ? (
-            <img src={hostProfile.avatar} alt={hostProfile.name} className="web-host-avatar-img" />
+          {hostProfile.avatar && !hostAvatarErr ? (
+            <img
+              src={hostProfile.avatar}
+              alt={hostProfile.name}
+              className="web-host-avatar-img"
+              onError={() => setHostAvatarErr(true)}
+            />
           ) : (
             <div className="web-host-default-avatar">
               <Heart size={20} color="#a855f7" />
@@ -212,8 +219,13 @@ export function WebGuestLanding() {
       <div className="web-guest-profile-card">
         <div className="web-guest-avatar-picker">
           <label htmlFor="web-avatar-input" className="web-guest-avatar-label" title="Clique para trocar foto">
-            {guestProfile.avatar ? (
-              <img src={guestProfile.avatar} alt="Você" className="web-guest-avatar-img" />
+            {guestProfile.avatar && !guestAvatarErr ? (
+              <img
+                src={guestProfile.avatar}
+                alt="Você"
+                className="web-guest-avatar-img"
+                onError={() => setGuestAvatarErr(true)}
+              />
             ) : (
               <div className="web-guest-avatar-placeholder">
                 <Heart size={24} color="#f43f8e" />

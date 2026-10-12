@@ -19,78 +19,85 @@ export function ScreenShareCard({
   } = useWebRTC();
 
   const videoRef = useRef(null);
-  const audioRef = useRef(null);
   const [playBlocked, setPlayBlocked] = useState(false);
 
   const tryPlay = () => {
     const vEl = videoRef.current;
-    const aEl = audioRef.current;
+    if (!vEl) return;
 
-    if (vEl) {
-      const promise = vEl.play();
-      if (promise && typeof promise.then === 'function') {
-        promise
-          .then(() => setPlayBlocked(false))
-          .catch((err) => {
-            console.warn('[ScreenShareCard] Autoplay de vídeo bloqueado ou aguardando ativação:', err?.message || err);
-            setPlayBlocked(true);
-          });
-      }
-    }
+    const targetMuted = isLocal ? true : (isScreenMuted || isDeafened);
+    vEl.muted = targetMuted;
+    vEl.volume = targetMuted ? 0 : screenVolume;
 
-    if (aEl && !isLocal) {
-      aEl.volume = isScreenMuted ? 0 : screenVolume;
-      const aPromise = aEl.play();
-      if (aPromise && typeof aPromise.then === 'function') {
-        aPromise.catch((err) => {
-          console.warn('[ScreenShareCard] Autoplay de áudio aguardando ativação:', err?.message || err);
+    const promise = vEl.play();
+    if (promise && typeof promise.then === 'function') {
+      promise
+        .then(() => setPlayBlocked(false))
+        .catch((err) => {
+          console.warn('[ScreenShareCard] Autoplay bloqueado pelo navegador:', err?.message || err);
+          setPlayBlocked(true);
         });
-      }
     }
   };
 
+  // Desbloqueio global por interação do usuário (clique ou toque em qualquer lugar)
+  useEffect(() => {
+    const handleGlobalUnlock = () => {
+      const vEl = videoRef.current;
+      if (vEl && vEl.paused) {
+        vEl.play().then(() => setPlayBlocked(false)).catch(() => {});
+      }
+    };
+    window.addEventListener('click', handleGlobalUnlock, { capture: true, passive: true });
+    window.addEventListener('touchstart', handleGlobalUnlock, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('click', handleGlobalUnlock, { capture: true });
+      window.removeEventListener('touchstart', handleGlobalUnlock, { capture: true });
+    };
+  }, []);
+
   useEffect(() => {
     const vEl = videoRef.current;
-    const aEl = audioRef.current;
+    if (!vEl || !stream) return;
 
-    if (vEl && stream && vEl.srcObject !== stream) {
+    const currentVTrack = vEl.srcObject?.getVideoTracks()[0];
+    const newVTrack = stream.getVideoTracks()[0];
+
+    if (vEl.srcObject !== stream || currentVTrack !== newVTrack) {
       vEl.srcObject = stream;
-    }
-    if (aEl && stream && !isLocal && aEl.srcObject !== stream) {
-      aEl.srcObject = stream;
     }
 
     tryPlay();
 
-    // Desmutar/iniciar assim que as tracks de vídeo ou áudio receberem os primeiros frames RTP
-    const vTrack = stream?.getVideoTracks()[0];
-    const aTrack = stream?.getAudioTracks()[0];
+    // Desmutar/iniciar assim que as tracks de vídeo ou áudio receberem os primeiros pacotes RTP
+    const vTrack = stream.getVideoTracks()[0];
+    const aTrack = stream.getAudioTracks()[0];
 
-    const handleUnmute = () => {
-      console.log('[ScreenShareCard] Track recebida/desmutada, atualizando playback...');
+    const handleTrackActivity = () => {
+      console.log('[ScreenShareCard] Track ativa/desmutada, atualizando playback...');
       tryPlay();
     };
 
-    if (vTrack) vTrack.addEventListener('unmute', handleUnmute);
-    if (aTrack) aTrack.addEventListener('unmute', handleUnmute);
+    if (vTrack) vTrack.addEventListener('unmute', handleTrackActivity);
+    if (aTrack) aTrack.addEventListener('unmute', handleTrackActivity);
 
     return () => {
-      if (vTrack) vTrack.removeEventListener('unmute', handleUnmute);
-      if (aTrack) aTrack.removeEventListener('unmute', handleUnmute);
+      if (vTrack) vTrack.removeEventListener('unmute', handleTrackActivity);
+      if (aTrack) aTrack.removeEventListener('unmute', handleTrackActivity);
     };
-  }, [stream, isLocal]);
+  }, [stream, isLocal, isScreenMuted, isDeafened]);
 
   useEffect(() => {
-    const targetVol = (isLocal || isScreenMuted || isDeafened) ? 0 : screenVolume;
-    if (videoRef.current) {
-      videoRef.current.volume = targetVol;
-    }
-    if (audioRef.current) {
-      audioRef.current.volume = targetVol;
-    }
+    const vEl = videoRef.current;
+    if (!vEl) return;
+    const targetMuted = isLocal ? true : (isScreenMuted || isDeafened);
+    vEl.muted = targetMuted;
+    vEl.volume = targetMuted ? 0 : screenVolume;
   }, [screenVolume, isScreenMuted, isLocal, isDeafened]);
 
   if (!stream) return null;
+
+  const targetMuted = isLocal ? true : (isScreenMuted || isDeafened);
 
   return (
     <div id={cardId} className="video-card screen-card">
@@ -98,12 +105,12 @@ export function ScreenShareCard({
         ref={videoRef}
         autoPlay
         playsInline
-        muted={true}
+        muted={targetMuted}
         onLoadedMetadata={tryPlay}
         className={screenFitMode}
       />
 
-      {/* Botão de desbloqueio para celular/navegadores onde o autoplay foi bloqueado */}
+      {/* Botão de desbloqueio para celular/navegadores onde o autoplay com áudio foi bloqueado */}
       {playBlocked && (
         <button
           type="button"
@@ -114,18 +121,8 @@ export function ScreenShareCard({
           }}
         >
           <Play size={24} />
-          <span>Toque para assistir à transmissão</span>
+          <span>Toque para assistir à transmissão com áudio</span>
         </button>
-      )}
-
-      {/* Áudio dedicado da transmissão remota */}
-      {!isLocal && (
-        <audio
-          ref={audioRef}
-          autoPlay
-          playsInline
-          style={{ display: 'none' }}
-        />
       )}
 
       {/* Top Bar */}

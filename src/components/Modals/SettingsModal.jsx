@@ -170,9 +170,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'profile' }) {
     if (file) {
       setSelectedFile(file);
       setIsAvatarRemoved(false);
-      const reader = new FileReader();
-      reader.onload = (ev) => setPreviewAvatar(ev.target.result);
-      reader.readAsDataURL(file);
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewAvatar(objectUrl);
     }
   };
 
@@ -310,7 +309,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'profile' }) {
                     title="Clique para escolher imagem"
                   >
                     {previewAvatar ? (
-                      <img src={previewAvatar} alt="Prévia" className="profile-avatar-preview-img" />
+                      <img
+                        src={previewAvatar}
+                        alt="Prévia"
+                        className="profile-avatar-preview-img"
+                        onError={() => setPreviewAvatar(null)}
+                      />
                     ) : (
                       <div className="profile-avatar-preview-placeholder">
                         <Heart size={36} color="#f43f8e" />
