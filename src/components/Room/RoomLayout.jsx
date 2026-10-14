@@ -4,12 +4,18 @@ import { StreamArea } from './StreamArea/StreamArea';
 import { SettingsModal } from '../Modals/SettingsModal';
 import { ScreenPickerModal } from '../Modals/ScreenPickerModal';
 import { PhotoAlbumModal } from '../Modals/PhotoAlbumModal';
+import { QualityPresetsModal } from '../Modals/QualityPresetsModal';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { electronBridge, isElectron } from '../../services/electronBridge';
 import { useWebRTC } from '../../context/WebRTCContext';
 
 export function RoomLayout() {
-  const { isTheaterMode, setIsTheaterMode } = useWebRTC();
+  const {
+    isTheaterMode,
+    setIsTheaterMode,
+    isQualityModalOpen,
+    setIsQualityModalOpen
+  } = useWebRTC();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState('profile');
   const [isScreenPickerOpen, setIsScreenPickerOpen] = useState(false);
@@ -19,7 +25,8 @@ export function RoomLayout() {
     setIsSettingsOpen(false);
     setIsScreenPickerOpen(false);
     setIsAlbumOpen(false);
-  }, []);
+    setIsQualityModalOpen(false);
+  }, [setIsQualityModalOpen]);
 
   const handleOpenSettings = useCallback((tab = 'profile') => {
     setSettingsTab(tab);
@@ -84,6 +91,12 @@ export function RoomLayout() {
       <PhotoAlbumModal
         isOpen={isAlbumOpen}
         onClose={handleCloseAlbum}
+      />
+
+      {/* Modal Modular de Qualidade de Transmissão */}
+      <QualityPresetsModal
+        isOpen={isQualityModalOpen}
+        onClose={() => setIsQualityModalOpen(false)}
       />
     </div>
   );

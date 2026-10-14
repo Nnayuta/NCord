@@ -6,8 +6,8 @@
  * sem interrupção de playback por underrun momentâneo, e limitador suave contra clipping.
  */
 const BUFFER_SIZE = 96000; // 2 segundos de buffer por fonte a 48 kHz
-const PREBUFFER_TARGET = 256; // ~5.3 ms (2 blocos de 128) - partida imediata sem atraso
-const MAX_HEALTHY_BUFFER = 9600; // 200 ms: descarta excesso para evitar acúmulo de latência
+const PREBUFFER_TARGET = 960; // ~20 ms (7.5 blocos de 128) - absorve jitter IPC sem latência perceptível
+const MAX_HEALTHY_BUFFER = 4800; // 100 ms: descarta excesso para evitar acúmulo de latência
 const IDLE_BLOCKS_BEFORE_REMOVE = 12000; // ~32 segundos de inatividade para liberar fontes secundárias
 
 class WindowAudioProcessor extends AudioWorkletProcessor {
@@ -172,24 +172,33 @@ class WindowAudioProcessor extends AudioWorkletProcessor {
 
       if (count < blockSize) {
         // Starvation momentânea: o resto do bloco permanece zero (silêncio suave)
-        // NÃO desmarca "started" imediatamente para não causar travamentos cíclicos!
-        src.starveCount++;
-        // Só desmarca "started" se ficar em starvation por mais de 50 blocos (~133ms de silêncio contínuo)
-        if (src.starveCount > 50) {
-          src.started = false;
+        if (src.available === 0) {
+          src.starveCount++;
+          // Se zerou por mais de 2 blocos (~5.3ms), volta para re-buffer limpo
+          // para não ficar tocando blocos parciais picotados (que causam efeito comb filter / som abafado)
+          if (src.starveCount >= 2) {
+            src.started = false;
+          }
         }
       } else {
         src.starveCount = 0;
       }
     }
 
-    // Limitador suave contra clipping caso múltiplas fontes somadas passem de 1.0
+    // Limitador com saturação suave (soft knee) para prevenir distorção harmônica e clipping digital
+    // Linear (100% transparente) em |x| <= 0.85; compressão suave via tanh em picos extremos |x| > 0.85
+    const softLimit = (x) => {
+      if (x > -0.85 && x < 0.85) return x;
+      if (x >= 0.85) {
+        return 0.85 + 0.15 * Math.tanh((x - 0.85) / 0.15);
+      }
+      return -0.85 + 0.15 * Math.tanh((x + 0.85) / 0.15);
+    };
+
     for (let i = 0; i < blockSize; i++) {
-      if (outLeft[i] > 1.0) outLeft[i] = 1.0;
-      else if (outLeft[i] < -1.0) outLeft[i] = -1.0;
+      outLeft[i] = softLimit(outLeft[i]);
       if (outRight) {
-        if (outRight[i] > 1.0) outRight[i] = 1.0;
-        else if (outRight[i] < -1.0) outRight[i] = -1.0;
+        outRight[i] = softLimit(outRight[i]);
       }
     }
 

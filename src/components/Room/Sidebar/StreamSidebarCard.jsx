@@ -8,12 +8,15 @@ export function StreamSidebarCard() {
     isLocalScreenSharing,
     isRemoteScreenSharing,
     activePreset,
+    remoteScreenPreset,
     spotlightTarget,
     setSpotlightTarget,
     setDualScreenViewMode
   } = useWebRTC();
 
   if (!isScreenSharing) return null;
+
+  const currentPreset = isLocalScreenSharing ? activePreset : remoteScreenPreset;
 
   const ownerText = (isLocalScreenSharing && isRemoteScreenSharing)
     ? 'Ambos transmitindo'
@@ -39,7 +42,7 @@ export function StreamSidebarCard() {
         <span className="live-pill">
           <span className="pulse-dot"></span> AO VIVO
         </span>
-        <span className="stream-quality-pill">{activePreset?.badge?.split('•')[0]?.trim() || 'HD'}</span>
+        <span className="stream-quality-pill">{currentPreset?.badge?.split('•')[0]?.trim() || 'HD'}</span>
       </div>
 
       <div className="stream-card-body">

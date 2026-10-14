@@ -40,6 +40,15 @@ export function WebGuestLanding() {
   const hostProfile = profiles?.[targetHostId] || { name: 'Anfitrião', avatar: null };
   const guestProfile = profiles?.[targetGuestId] || { name: 'Convidado', avatar: null };
 
+  // Limpar erro de imagem quando a URL do avatar mudar/atualizar
+  useEffect(() => {
+    setHostAvatarErr(false);
+  }, [hostProfile?.avatar]);
+
+  useEffect(() => {
+    setGuestAvatarErr(false);
+  }, [guestProfile?.avatar]);
+
   // Verificar token inicial
   useEffect(() => {
     async function checkInitialToken() {

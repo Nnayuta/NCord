@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { ScreenShare, X, LayoutGrid, Monitor, Volume2, VolumeX, Loader2, RotateCw, Check } from 'lucide-react';
+import { ScreenShare, X, LayoutGrid, Monitor, Volume2, VolumeX, Loader2, RotateCw, Check, Sparkles } from 'lucide-react';
 import { electronBridge, isElectron } from '../../services/electronBridge';
 import { useWebRTC } from '../../context/WebRTCContext';
+import { getModularStreamPreset } from '../../services/webrtcEngine';
 import { useToast } from '../../hooks/useToast';
 
 const EXCLUDED_APPS_STORAGE_KEY = 'ncord.excludedAudioApps';
@@ -16,7 +17,13 @@ function loadExcludedApps() {
 }
 
 export function ScreenPickerModal({ isOpen, onClose }) {
-  const { startScreenShare, isLocalScreenSharing } = useWebRTC();
+  const {
+    startScreenShare,
+    isLocalScreenSharing,
+    streamResolution,
+    streamFps,
+    changeModularQuality
+  } = useWebRTC();
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('applications'); // 'applications' | 'displays'
@@ -107,7 +114,11 @@ export function ScreenPickerModal({ isOpen, onClose }) {
       if (excludeApps.length > 0 && result && result.success && !result.exclusionApplied) {
         showToast('Não foi possível excluir apps do áudio; transmitindo o áudio do computador inteiro.', 'error');
       }
-      await startScreenShare(selected.id);
+      await startScreenShare(selected.id, {
+        streamAudio,
+        useNativeAudio: Boolean(streamAudio && result?.hasProcessAudio),
+        requestSystemAudioFallback: Boolean(streamAudio && result?.success && !result?.hasProcessAudio)
+      });
     }
     onClose();
   };
@@ -300,6 +311,58 @@ export function ScreenPickerModal({ isOpen, onClose }) {
             </div>
           </div>
         )}
+
+        {/* Barra de Qualidade Modular (Resolução & FPS) */}
+        <div className="picker-quality-bar">
+          <div className="picker-quality-header">
+            <div className="picker-quality-title">
+              <Sparkles size={14} color="#f43f8e" />
+              <span>Qualidade de Transmissão</span>
+            </div>
+            {(() => {
+              const preset = getModularStreamPreset(streamResolution, streamFps);
+              const bitrateMbps = (preset.screenBitrate / 1_000_000).toFixed(1);
+              return (
+                <span className="picker-bitrate-badge">
+                  Bitrate Auto: <strong>{bitrateMbps} Mbps</strong>
+                </span>
+              );
+            })()}
+          </div>
+          <div className="picker-quality-selectors">
+            <div className="picker-pill-group">
+              <span className="picker-group-label">Resolução:</span>
+              {[
+                { id: '720p', label: '720p' },
+                { id: '1080p', label: '1080p' },
+                { id: '1440p', label: '1440p' },
+                { id: 'source', label: 'Nativo' }
+              ].map((res) => (
+                <button
+                  key={res.id}
+                  type="button"
+                  className={`picker-pill-btn ${streamResolution === res.id ? 'active' : ''}`}
+                  onClick={() => changeModularQuality(res.id, streamFps)}
+                >
+                  {res.label}
+                </button>
+              ))}
+            </div>
+            <div className="picker-pill-group">
+              <span className="picker-group-label">FPS:</span>
+              {[30, 60].map((fpsVal) => (
+                <button
+                  key={fpsVal}
+                  type="button"
+                  className={`picker-pill-btn ${Number(streamFps) === fpsVal ? 'active' : ''}`}
+                  onClick={() => changeModularQuality(streamResolution, fpsVal)}
+                >
+                  {fpsVal} FPS
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* Ações */}
         <div className="screen-picker-actions">

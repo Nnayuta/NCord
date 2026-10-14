@@ -16,7 +16,15 @@ export function ProfileProvider({ children }) {
 
   const normalizeAvatar = useCallback((avatar) => {
     if (!avatar) return null;
-    if (avatar.startsWith('data:') || avatar.startsWith('http://') || avatar.startsWith('https://')) {
+    if (avatar.startsWith('data:') || avatar.startsWith('blob:')) {
+      return avatar;
+    }
+    // Se contém a rota interna de avatar (/api/avatar/), extrai a parte relativa e resolve com a URL base atual
+    if (typeof avatar === 'string' && avatar.includes('/api/avatar/')) {
+      const idx = avatar.indexOf('/api/avatar/');
+      return apiService.getFullUrl(avatar.substring(idx));
+    }
+    if (avatar.startsWith('http://') || avatar.startsWith('https://')) {
       return avatar;
     }
     return apiService.getFullUrl(avatar);
@@ -123,10 +131,11 @@ export function ProfileProvider({ children }) {
       ...prev,
       [remoteProf.id]: {
         ...prev[remoteProf.id],
-        ...remoteProf
+        ...remoteProf,
+        avatar: normalizeAvatar(remoteProf.avatar !== undefined ? remoteProf.avatar : prev[remoteProf.id]?.avatar)
       }
     }));
-  }, []);
+  }, [normalizeAvatar]);
 
   // Atualizar nome de um perfil
   const updateProfileName = useCallback(async (profileId, newName) => {

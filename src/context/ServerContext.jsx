@@ -45,7 +45,13 @@ export function ServerProvider({ children }) {
           const tunnelStatus = await electronBridge.getWebTunnelStatus();
           if (tunnelStatus) {
             setWebTunnelInfo((prev) => ({ ...prev, ...tunnelStatus }));
+            if (tunnelStatus.token) {
+              apiService.setRoomToken(tunnelStatus.token);
+            }
           }
+
+          // Sincronizar token secreto de sala imediatamente no Host local
+          await apiService.fetchRoomToken();
         } catch (e) {}
       } else {
         const urlParams = new URLSearchParams(window.location.search);
@@ -229,6 +235,9 @@ export function ServerProvider({ children }) {
     try {
       const res = await electronBridge.startWebTunnel();
       if (res.success && res.url) {
+        if (res.token) {
+          apiService.setRoomToken(res.token);
+        }
         setWebTunnelInfo({
           isOnline: true,
           url: res.url,
@@ -256,6 +265,9 @@ export function ServerProvider({ children }) {
   // Iniciar Túnel e Copiar Link em 1 Clique Rápido
   const startAndCopyWebLink = useCallback(async () => {
     if (webTunnelInfo?.isOnline && webTunnelInfo?.url) {
+      if (webTunnelInfo?.token) {
+        apiService.setRoomToken(webTunnelInfo.token);
+      }
       const tokenParam = webTunnelInfo?.token ? `&token=${encodeURIComponent(webTunnelInfo.token)}` : '';
       const magicLink = `${webTunnelInfo.url}/?room=lovechat&role=guest&profile=user2${tokenParam}`;
       try {
@@ -269,6 +281,9 @@ export function ServerProvider({ children }) {
 
     const res = await startWebTunnelAction();
     if (res?.success && res?.url) {
+      if (res.token) {
+        apiService.setRoomToken(res.token);
+      }
       const tokenParam = res.token ? `&token=${encodeURIComponent(res.token)}` : '';
       const magicLink = `${res.url}/?room=lovechat&role=guest&profile=user2${tokenParam}`;
       try {
@@ -302,6 +317,7 @@ export function ServerProvider({ children }) {
     if (!isElectron) return;
     const res = await electronBridge.regenerateRoomToken();
     if (res && res.token) {
+      apiService.setRoomToken(res.token);
       setWebTunnelInfo((prev) => ({ ...prev, token: res.token }));
       showToast('Nova chave secreta gerada com sucesso! 🔑', 'success');
       return res.token;

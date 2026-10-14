@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, Heart, Mic, MicOff, Headphones } from 'lucide-react';
 import { useProfiles } from '../../../context/ProfileContext';
 import { useWebRTC } from '../../../context/WebRTCContext';
@@ -11,6 +11,10 @@ export function UserFooterBar({ onOpenSettings }) {
   const { isMicMuted, toggleMic, isDeafened, toggleDeafen, isLocalSpeaking } = useWebRTC();
   const { hasUpdate } = useAutoUpdate();
   const [avatarErr, setAvatarErr] = useState(false);
+
+  useEffect(() => {
+    setAvatarErr(false);
+  }, [myProfile?.avatar]);
 
   const isPink = activeProfileId === 'user2';
 

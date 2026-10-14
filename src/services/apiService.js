@@ -58,7 +58,14 @@ export class ApiService {
   }
 
   getFullUrl(path) {
-    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    if (!path) return '';
+    let targetPath = path;
+    // Se recebeu uma URL absoluta que aponta para uma rota da API (/api/...), extrai a rota relativa
+    if (typeof targetPath === 'string' && targetPath.includes('/api/')) {
+      const apiIdx = targetPath.indexOf('/api/');
+      targetPath = targetPath.substring(apiIdx);
+    }
+    const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
     let url = '';
     if (!this.baseUrl) {
       if (typeof window !== 'undefined') {
@@ -204,7 +211,15 @@ export class ApiService {
 
   getAvatarUrl(avatarPath) {
     if (!avatarPath) return null;
-    if (avatarPath.startsWith('data:') || avatarPath.startsWith('http://') || avatarPath.startsWith('https://')) {
+    if (avatarPath.startsWith('data:') || avatarPath.startsWith('blob:')) {
+      return avatarPath;
+    }
+    // Se aponta para a rota interna /api/avatar/, sempre normaliza com getFullUrl para garantir a URL correta do cliente
+    if (typeof avatarPath === 'string' && avatarPath.includes('/api/avatar/')) {
+      const idx = avatarPath.indexOf('/api/avatar/');
+      return this.getFullUrl(avatarPath.substring(idx));
+    }
+    if (avatarPath.startsWith('http://') || avatarPath.startsWith('https://')) {
       return avatarPath;
     }
     return this.getFullUrl(avatarPath);
@@ -226,26 +241,29 @@ export class ApiService {
     }
   }
 
-  async occupyProfile(profileId, peerId, roomName = 'lovechat') {
+  async occupyProfile(profileId, peerId, roomName = 'lovechat', sessionId = null) {
     try {
       const res = await fetch(this.getFullUrl('/api/room/occupy'), {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ profileId, peerId, room: roomName })
+        body: JSON.stringify({ profileId, peerId, room: roomName, sessionId })
       });
-      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { success: false, error: errData.error || `HTTP ${res.status}`, message: errData.message };
+      }
       return await res.json();
     } catch (err) {
-      return { success: false, occupiedProfiles: [] };
+      return { success: false, error: err.message, occupiedProfiles: [] };
     }
   }
 
-  async heartbeatProfile(profileId, peerId) {
+  async heartbeatProfile(profileId, peerId, sessionId = null) {
     try {
       const res = await fetch(this.getFullUrl('/api/room/heartbeat'), {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ profileId, peerId })
+        body: JSON.stringify({ profileId, peerId, sessionId })
       });
       if (!res.ok) throw new Error(`HTTP error ${res.status}`);
       return await res.json();
@@ -276,16 +294,36 @@ export class ApiService {
     }
   }
 
-  async leaveRoom(peerId, profileId) {
+  async leaveRoom(peerId, profileId, sessionId = null) {
     try {
       await fetch(this.getFullUrl('/api/room/leave'), {
         method: 'POST',
         headers: this.getHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ peerId, profileId })
+        body: JSON.stringify({ peerId, profileId, sessionId })
       });
     } catch (err) {
       console.warn('[ApiService] Erro ao notificar saída:', err);
     }
+  }
+
+  leaveRoomBeacon(peerId, profileId, sessionId = null) {
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      try {
+        const token = this.getRoomToken();
+        const queryParams = new URLSearchParams({
+          peerId: peerId || '',
+          profileId: profileId || '',
+          sessionId: sessionId || ''
+        });
+        if (token) queryParams.set('token', token);
+        const url = this.getFullUrl(`/api/room/leave?${queryParams.toString()}`);
+        const blob = new Blob([JSON.stringify({ peerId, profileId, sessionId })], { type: 'application/json' });
+        return navigator.sendBeacon(url, blob);
+      } catch (e) {
+        console.warn('[ApiService] Falha no sendBeacon:', e);
+      }
+    }
+    return false;
   }
 
   // Métodos do Álbum de Fotos Compartilhado

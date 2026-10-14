@@ -2,59 +2,81 @@
  * Motor WebRTC de Ultra-Alta Fidelidade para LoveChat
  */
 
-export const QUALITY_PRESETS = {
-  ultra: {
-    id: 'ultra',
-    label: 'Ultra HD (Sem Limites)',
-    badge: '14 Mbps • 60 FPS',
-    description: '14 Mbps • Até 4K 60 FPS • Alta fidelidade sem bloqueios',
-    screenBitrate: 14_000_000,
-    mediaBitrate: 3_500_000,
-    degradationPreference: 'balanced',
-    contentHint: 'detail',
-    maxFps: 60,
-    sdpScreenKbps: 14000,
-    sdpMediaKbps: 3500
+export const STREAM_RESOLUTIONS = {
+  '720p': {
+    id: '720p',
+    label: '720p (HD)',
+    desc: 'Leve e ultra rápido, ideal para conexões móveis e celular',
+    width: 1280,
+    height: 720,
+    baseBitrate30: 3_000_000,
+    baseBitrate60: 5_000_000
   },
-  cinema: {
-    id: 'cinema',
-    label: 'Modo Cinema (Nitidez Máxima)',
-    badge: '10 Mbps • Cinema HD',
-    description: '10 Mbps • 1080p • Foco em detalhes finos para filmes e animes',
-    screenBitrate: 10_000_000,
-    mediaBitrate: 2_500_000,
-    degradationPreference: 'balanced',
-    contentHint: 'detail',
-    maxFps: 60,
-    sdpScreenKbps: 10000,
-    sdpMediaKbps: 2500
+  '1080p': {
+    id: '1080p',
+    label: '1080p (Full HD)',
+    desc: 'Equilíbrio ideal entre nitidez cristalina e performance suave',
+    width: 1920,
+    height: 1080,
+    baseBitrate30: 4_500_000,
+    baseBitrate60: 6_000_000
   },
-  gamer: {
-    id: 'gamer',
-    label: 'Modo Gamer (60 FPS Fluido)',
-    badge: '12 Mbps • 60 FPS',
-    description: '12 Mbps • 60 FPS • Prioriza movimentação rápida e responsiva',
-    screenBitrate: 12_000_000,
-    mediaBitrate: 2_500_000,
-    degradationPreference: 'balanced',
-    contentHint: 'motion',
-    maxFps: 60,
-    sdpScreenKbps: 12000,
-    sdpMediaKbps: 2500
+  '1440p': {
+    id: '1440p',
+    label: '1440p (2K Quad HD)',
+    desc: 'Alta definição para monitores amplos e textos minuciosos',
+    width: 2560,
+    height: 1440,
+    baseBitrate30: 10_000_000,
+    baseBitrate60: 13_000_000
   },
-  balanced: {
-    id: 'balanced',
-    label: 'Modo Equilibrado',
-    badge: '6 Mbps • 1080p',
-    description: '6 Mbps • 1080p 30 FPS • Mais leve se a conexão oscilar',
-    screenBitrate: 6_000_000,
-    mediaBitrate: 1_500_000,
-    degradationPreference: 'balanced',
-    contentHint: 'detail',
-    maxFps: 30,
-    sdpScreenKbps: 6000,
-    sdpMediaKbps: 1500
+  'source': {
+    id: 'source',
+    label: 'Nativo (Original)',
+    desc: 'Resolução original da tela sem compressão dimensional',
+    width: 3840,
+    height: 2160,
+    baseBitrate30: 12_000_000,
+    baseBitrate60: 16_000_000
   }
+};
+
+export const STREAM_FPS_OPTIONS = [
+  { id: 30, label: '30 FPS', badge: 'Econômico', desc: 'Menor consumo de CPU e internet' },
+  { id: 60, label: '60 FPS', badge: 'Fluidez Máxima', desc: 'Movimentação suave e responsiva sem engasgos' }
+];
+
+export function getModularStreamPreset(resolutionKey = '1080p', fps = 60) {
+  const res = STREAM_RESOLUTIONS[resolutionKey] || STREAM_RESOLUTIONS['1080p'];
+  const actualFps = Number(fps) === 30 ? 30 : 60;
+  const bitrate = actualFps === 30 ? res.baseBitrate30 : res.baseBitrate60;
+  const bitrateMbps = (bitrate / 1_000_000).toFixed(1);
+  const sdpKbps = Math.round(bitrate / 1000);
+
+  return {
+    id: `${res.id}-${actualFps}`,
+    resolutionKey: res.id,
+    fps: actualFps,
+    label: `${res.label} • ${actualFps} FPS`,
+    badge: `${res.id.toUpperCase()} • ${actualFps} FPS • ${bitrateMbps} Mbps`,
+    description: `${res.label} a ${actualFps} FPS com bitrate automático de ${bitrateMbps} Mbps`,
+    screenBitrate: bitrate,
+    mediaBitrate: 3_000_000,
+    degradationPreference: 'maintain-framerate', // Prioriza taxas de quadros fluidas (sem travar)
+    contentHint: actualFps === 60 ? 'motion' : 'detail',
+    maxFps: actualFps,
+    maxWidth: res.width,
+    maxHeight: res.height,
+    sdpScreenKbps: sdpKbps,
+    sdpMediaKbps: 3000
+  };
+}
+
+export const QUALITY_PRESETS = {
+  ultra: getModularStreamPreset('source', 60),
+  cinema: getModularStreamPreset('1080p', 60),
+  gamer: getModularStreamPreset('1080p', 60),
+  balanced: getModularStreamPreset('720p', 30)
 };
 
 export const ICE_CONFIG = {
@@ -173,12 +195,10 @@ export async function applySenderParameters(sender, preset = QUALITY_PRESETS.ult
       encoding.maxBitrate = maxBitrate;
       if (preset.maxFps) encoding.maxFramerate = preset.maxFps;
     }
-    if (preset.degradationPreference) {
-      params.degradationPreference = preset.degradationPreference;
-    }
+    params.degradationPreference = preset.degradationPreference || 'maintain-framerate';
 
     await sender.setParameters(params);
-    console.log(`[WebRTC] Parâmetros aplicados no RTCRtpSender: ${(maxBitrate / 1_000_000).toFixed(1)} Mbps`);
+    console.log(`[WebRTC] Parâmetros aplicados no RTCRtpSender: ${(maxBitrate / 1_000_000).toFixed(1)} Mbps (${preset.maxFps || 60} FPS)`);
   } catch (err) {
     console.debug('[WebRTC] Aviso não-bloqueante ao aplicar parâmetros:', err.message);
   }
@@ -192,7 +212,7 @@ export function transformSDP(sdp, isScreen = false, preset = QUALITY_PRESETS.ult
   try {
     const lines = sdp.split('\r\n');
     const newLines = [];
-    const bitrateKbps = isScreen ? (preset.sdpScreenKbps || 14000) : (preset.sdpMediaKbps || 3500);
+    const bitrateKbps = isScreen ? (preset.sdpScreenKbps || 9000) : (preset.sdpMediaKbps || 3000);
 
     // Identificar dinamicamente os payload types de Opus (áudio)
     const opusPayloadTypes = new Set();
@@ -232,20 +252,22 @@ export function transformSDP(sdp, isScreen = false, preset = QUALITY_PRESETS.ult
         inAudioSection = false;
       }
 
-      // Otimização do Codec de Áudio Opus para Broadcast Stereo 48kHz / 128 kbps estável
+      // Otimização do Codec de Áudio Opus para Broadcast Stereo 48kHz (320 kbps VBR para tela / 128 kbps para voz)
+      // cbr=0 e usedtx=0 garantem áudio dinâmico e sem compressão abafada nem silêncios cortados
       if (line.startsWith('a=fmtp:')) {
         const ptMatch = line.match(/^a=fmtp:(\d+)/);
         const pt = ptMatch ? ptMatch[1] : null;
 
         if (pt && opusPayloadTypes.has(pt)) {
           if (!line.includes('stereo=1')) {
-            line += ';stereo=1;sprop-stereo=1;maxaveragebitrate=128000;cbr=1;useinbandfec=1';
+            const audioBitrate = isScreen ? 320000 : 128000;
+            line += `;stereo=1;sprop-stereo=1;maxaveragebitrate=${audioBitrate};cbr=0;usedtx=0;useinbandfec=1;maxplaybackrate=48000;sprop-maxcapturerate=48000`;
           }
         } else if (pt && (videoPayloadTypes.has(pt) || inVideoSection)) {
           // Apenas adiciona min/start/max bitrate aos codecs de vídeo, nunca misturar com áudio
           if (!line.includes('x-google-min-bitrate')) {
-            const minKbps = 300;
-            const startKbps = isScreen ? 1500 : 800;
+            const minKbps = 400;
+            const startKbps = isScreen ? Math.min(2500, Math.round(bitrateKbps * 0.4)) : 800;
             const maxKbps = bitrateKbps;
             line += `;x-google-min-bitrate=${minKbps};x-google-start-bitrate=${startKbps};x-google-max-bitrate=${maxKbps}`;
           }
@@ -263,8 +285,9 @@ export function transformSDP(sdp, isScreen = false, preset = QUALITY_PRESETS.ult
 
       // Injetar banda de áudio após c= do bloco m=audio
       if (inAudioSection && !audioBandwidthInserted && line.startsWith('c=')) {
-        newLines.push(`b=AS:128`);
-        newLines.push(`b=TIAS:128000`);
+        const audioKbps = isScreen ? 320 : 128;
+        newLines.push(`b=AS:${audioKbps}`);
+        newLines.push(`b=TIAS:${audioKbps * 1000}`);
         audioBandwidthInserted = true;
       }
     }

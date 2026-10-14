@@ -34,9 +34,10 @@ const ipRequestCounts = new Map();
 const BANNED_IPS = new Set();
 
 // Limpar contadores de IP a cada 1 minuto
-setInterval(() => {
+const rateLimitInterval = setInterval(() => {
   ipRequestCounts.clear();
 }, 60000);
+if (rateLimitInterval.unref) rateLimitInterval.unref();
 
 // Middleware para validar requisições e aplicar limites por IP (com isenção de assets estáticos e peerjs)
 function rateLimiter(req, res, next) {
@@ -99,14 +100,14 @@ let currentRoomToken = null;
 
 function getOrCreateRoomToken() {
   if (!currentRoomToken) {
-    currentRoomToken = crypto.randomBytes(8).toString('hex');
+    currentRoomToken = crypto.randomBytes(16).toString('hex');
     console.log(`[Auth] Token de sala gerado: ${currentRoomToken}`);
   }
   return currentRoomToken;
 }
 
 function regenerateRoomToken() {
-  currentRoomToken = crypto.randomBytes(8).toString('hex');
+  currentRoomToken = crypto.randomBytes(16).toString('hex');
   console.log(`[Auth] Novo token secreto de sala gerado: ${currentRoomToken}`);
   return currentRoomToken;
 }
@@ -116,14 +117,27 @@ function isValidToken(token) {
   return Boolean(token && typeof token === 'string' && token.trim() === currentRoomToken);
 }
 
+/**
+ * Determina estritamente se a requisição originou-se do processo local do Electron / Localhost.
+ * Se contiver cabeçalhos de encaminhamento de proxy (Cloudflare Tunnel, etc.), NUNCA é local.
+ */
 function isLocalRequest(req) {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
-  if (!ip) return true;
+  if (
+    req.headers['cf-ray'] ||
+    req.headers['cf-connecting-ip'] ||
+    req.headers['x-forwarded-for'] ||
+    req.headers['x-real-ip']
+  ) {
+    return false;
+  }
+
+  const rawAddr = req.socket && req.socket.remoteAddress;
+  if (!rawAddr) return false;
+
   return (
-    ip === '127.0.0.1' ||
-    ip === '::1' ||
-    ip === '::ffff:127.0.0.1' ||
-    ip.startsWith('127.')
+    rawAddr === '127.0.0.1' ||
+    rawAddr === '::1' ||
+    rawAddr === '::ffff:127.0.0.1'
   );
 }
 
@@ -131,16 +145,16 @@ function tokenAuthMiddleware(req, res, next) {
   const p = req.path.toLowerCase();
 
   // Rotas isentas de autenticação por token
+  // Nota: /api/my-ip NÃO é isento; clientes remotos precisam do token para consultar IPs do host.
   if (
     !p.startsWith('/api/') ||
-    p === '/api/my-ip' ||
     p === '/api/auth/verify' ||
     (req.method === 'GET' && p.startsWith('/api/avatar/'))
   ) {
     return next();
   }
 
-  // Requisições locais (Electron / Localhost) sempre liberadas
+  // Requisições locais diretas (Electron no Host) são liberadas
   if (isLocalRequest(req)) {
     return next();
   }
@@ -166,8 +180,9 @@ app.use(tokenAuthMiddleware);
 // Endpoints de autenticação de token
 app.get('/api/auth/token', (req, res) => {
   const token = req.query.token || req.headers['x-room-token'];
+  // Apenas requisições comprovadamente locais ou já autenticadas com o token válido podem consultar o token ativo
   if (!isLocalRequest(req) && !isValidToken(token)) {
-    return res.status(401).json({ error: 'unauthorized' });
+    return res.status(401).json({ error: 'unauthorized', message: 'Apenas clientes autorizados podem consultar o token.' });
   }
   res.json({ success: true, token: getOrCreateRoomToken() });
 });
@@ -179,8 +194,9 @@ app.post('/api/auth/verify', (req, res) => {
 });
 
 app.post('/api/auth/regenerate', (req, res) => {
+  // Operação estritamente administrativa: apenas o Electron Host local pode regenerar o token
   if (!isLocalRequest(req)) {
-    return res.status(403).json({ error: 'forbidden' });
+    return res.status(403).json({ error: 'forbidden', message: 'Apenas o anfitrião local pode regenerar a chave de acesso.' });
   }
   const newToken = regenerateRoomToken();
   res.json({ success: true, token: newToken });
@@ -298,24 +314,38 @@ app.get('/api/db', (req, res) => {
 // ENDPOINTS DE AVATAR (ARQUIVOS REAIS EM DISCO)
 // ==========================================
 
-// Servir avatar como imagem real (com cache HTTP inteligente)
+// Servir avatar como imagem real (com cache HTTP inteligente, CORP/CORS e Content-Length via sendFile)
 app.get('/api/avatar/:profileId', (req, res) => {
-  const { profileId } = req.params;
-  const candidates = [
-    path.join(AVATAR_DIR, `${profileId}.jpg`),
-    path.join(__dirname, 'avatars', `${profileId}.jpg`),
-    path.join(process.cwd(), 'avatars', `${profileId}.jpg`)
-  ];
+  const rawId = (req.params.profileId || '').trim();
+  const cleanId = rawId.replace(/\.(jpg|jpeg|png|webp|gif)$/i, '');
 
-  const filePath = candidates.find((f) => fs.existsSync(f));
+  const extensions = ['jpg', 'png', 'webp', 'jpeg'];
+  const candidates = [];
+
+  const baseDirs = [AVATAR_DIR, path.join(__dirname, 'avatars'), path.join(process.cwd(), 'avatars')];
+  baseDirs.forEach((dir) => {
+    extensions.forEach((ext) => {
+      candidates.push(path.join(dir, `${cleanId}.${ext}`));
+    });
+    candidates.push(path.join(dir, rawId));
+  });
+
+  const filePath = candidates.find((f) => {
+    try {
+      return fs.existsSync(f) && fs.statSync(f).isFile();
+    } catch (e) {
+      return false;
+    }
+  });
+
   if (!filePath) {
     return res.status(404).send('Avatar não encontrado');
   }
 
-  res.setHeader('Content-Type', 'image/jpeg');
   res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
-  fs.createReadStream(filePath).pipe(res);
+  res.sendFile(path.resolve(filePath));
 });
 
 // Upload de avatar como arquivo binário real (ou fallback JSON)
@@ -471,10 +501,11 @@ function setupUdpDiscovery() {
     socket.bind(3001, () => {
       try {
         socket.setBroadcast(true);
+        if (socket.unref) socket.unref();
       } catch (e) {}
     });
 
-    setInterval(() => {
+    const udpTimer = setInterval(() => {
       if (!udpDiscoverySocket) return;
       try {
         const { zerotierIp, lanIp } = getHostNetworkIps();
@@ -489,6 +520,7 @@ function setupUdpDiscovery() {
         socket.send(payload, 0, payload.length, 3001, '255.255.255.255');
       } catch (e) {}
     }, 3000);
+    if (udpTimer.unref) udpTimer.unref();
   } catch (err) {
     console.warn('[Discovery] Falha ao configurar UDP discovery:', err.message);
   }
@@ -746,8 +778,11 @@ app.get('/api/album/photo/:filename', (req, res) => {
   res.sendFile(targetPath);
 });
 
-// Endpoint para definir pasta compartilhada
+// Endpoint para definir pasta compartilhada (restrito ao anfitrião local)
 app.post('/api/album/set-folder', (req, res) => {
+  if (!isLocalRequest(req)) {
+    return res.status(403).json({ error: 'forbidden', message: 'Apenas o anfitrião local pode configurar a pasta do álbum.' });
+  }
   const { folderPath } = req.body || {};
   if (folderPath && fs.existsSync(folderPath)) {
     setSharedAlbumFolder(folderPath);
@@ -763,24 +798,29 @@ app.post('/api/album/set-folder', (req, res) => {
   }
 });
 
-// Endpoint para limpar pasta compartilhada
+// Endpoint para limpar pasta compartilhada (restrito ao anfitrião local)
 app.post('/api/album/clear-folder', (req, res) => {
+  if (!isLocalRequest(req)) {
+    return res.status(403).json({ error: 'forbidden', message: 'Apenas o anfitrião local pode desativar o compartilhamento de fotos.' });
+  }
   setSharedAlbumFolder(null);
   res.json({ success: true, count: 0, photos: [] });
 });
 
 // ==========================================
-// MONITORAMENTO DE PEERS E SALAS ATIVAS
 // ==========================================
+// MONITORAMENTO DE PEERS E SALAS ATIVAS (MÁXIMO 2 PARTICIPANTES)
+// ==========================================
+const ALLOWED_PROFILES = new Set(['user1', 'user2']);
 const activePeers = new Map(); // peerId -> { id, connectedAt, lastSeen }
-const activeRoomProfiles = new Map(); // profileId -> { peerId, profileId, joinedAt, lastSeen }
+const activeRoomProfiles = new Map(); // profileId -> { peerId, profileId, sessionId, joinedAt, lastSeen }
 
 function getOccupiedProfiles() {
   const now = Date.now();
   const occupied = [];
   for (const [profId, data] of activeRoomProfiles.entries()) {
-    // Se passou mais de 60s sem heartbeat e não tem peer conectado, liberar
-    if (now - data.lastSeen > 60000 && (!data.peerId || !activePeers.has(data.peerId))) {
+    // Se passou mais de 60s sem heartbeat, liberar
+    if (now - data.lastSeen > 60000) {
       activeRoomProfiles.delete(profId);
       continue;
     }
@@ -818,64 +858,142 @@ app.get('/api/room/:room/status', (req, res) => {
   });
 });
 
-// Ocupar perfil ao entrar na chamada
+// Ocupar perfil ao entrar na chamada (validação estrita de 2 participantes)
 app.post('/api/room/occupy', (req, res) => {
-  const { profileId, peerId } = req.body || {};
-  if (profileId) {
-    activeRoomProfiles.set(profileId, {
-      profileId,
-      peerId: peerId || null,
-      joinedAt: Date.now(),
-      lastSeen: Date.now()
+  const { profileId, peerId, sessionId } = req.body || {};
+
+  // 1. Validar se o perfil é permitido no aplicativo
+  if (!profileId || !ALLOWED_PROFILES.has(profileId)) {
+    return res.status(400).json({
+      error: 'invalid_profile',
+      message: 'Perfil inválido. Apenas os perfis "user1" e "user2" são autorizados.'
     });
-    console.log(`[Room] Perfil "${profileId}" marcado como ocupado (Peer: ${peerId || 'desconhecido'})`);
   }
-  res.json({ success: true, occupiedProfiles: getOccupiedProfiles() });
+
+  const now = Date.now();
+  const effectiveSessionId = sessionId || `sess_${crypto.randomBytes(8).toString('hex')}`;
+
+  // 2. Verificar se o perfil já está ocupado por outro participante ativo
+  if (activeRoomProfiles.has(profileId)) {
+    const existing = activeRoomProfiles.get(profileId);
+    const isAlive = (now - existing.lastSeen < 60000);
+
+    // Se estiver ativo e pertencer a outro peer diferente
+    if (isAlive && existing.peerId && peerId && existing.peerId !== peerId) {
+      return res.status(409).json({
+        error: 'profile_occupied',
+        message: `O perfil "${profileId}" já está em uso por outro participante na chamada.`
+      });
+    }
+  }
+
+  // 3. Impor o limite de exatamente dois participantes simultâneos
+  const currentOccupied = getOccupiedProfiles();
+  if (!currentOccupied.includes(profileId) && currentOccupied.length >= 2) {
+    return res.status(403).json({
+      error: 'room_full',
+      message: 'A sala privada já atingiu o limite máximo de 2 participantes conectados.'
+    });
+  }
+
+  // 4. Registrar ocupação com rastreamento seguro de sessão
+  activeRoomProfiles.set(profileId, {
+    profileId,
+    peerId: peerId || null,
+    sessionId: effectiveSessionId,
+    joinedAt: now,
+    lastSeen: now
+  });
+
+  console.log(`[Room] Perfil "${profileId}" ocupado (Peer: ${peerId || 'desconhecido'}, Sessão: ${effectiveSessionId})`);
+  res.json({
+    success: true,
+    sessionId: effectiveSessionId,
+    occupiedProfiles: getOccupiedProfiles()
+  });
 });
 
 // Heartbeat para manter perfil ocupado ativo
 app.post('/api/room/heartbeat', (req, res) => {
-  const { profileId, peerId } = req.body || {};
-  if (profileId) {
-    if (activeRoomProfiles.has(profileId)) {
-      const curr = activeRoomProfiles.get(profileId);
+  const { profileId, peerId, sessionId } = req.body || {};
+  if (profileId && activeRoomProfiles.has(profileId)) {
+    const curr = activeRoomProfiles.get(profileId);
+    // Se o heartbeat vier de uma sessão antiga, não sobrescrever a sessão nova
+    if (!sessionId || !curr.sessionId || curr.sessionId === sessionId) {
       curr.lastSeen = Date.now();
       if (peerId) curr.peerId = peerId;
-    } else {
-      activeRoomProfiles.set(profileId, {
-        profileId,
-        peerId: peerId || null,
-        joinedAt: Date.now(),
-        lastSeen: Date.now()
-      });
     }
   }
   res.json({ success: true, occupiedProfiles: getOccupiedProfiles() });
 });
 
-// Liberar perfil ao sair da sala
+// Liberar perfil ao sair da sala (compatível com navigator.sendBeacon, query params e json)
 app.post('/api/room/leave', (req, res) => {
-  const { peerId, profileId } = req.body || {};
+  let body = req.body || {};
+  if (typeof body === 'string') {
+    try {
+      body = JSON.parse(body);
+    } catch (e) {
+      body = {};
+    }
+  }
+
+  const peerId = body.peerId || req.query.peerId;
+  const profileId = body.profileId || req.query.profileId;
+  const sessionId = body.sessionId || req.query.sessionId;
+
   if (peerId && activePeers.has(peerId)) {
     activePeers.delete(peerId);
     console.log(`[Room] Peer liberado explicitamente via /api/room/leave: ${peerId}`);
   }
+
   if (profileId && activeRoomProfiles.has(profileId)) {
-    activeRoomProfiles.delete(profileId);
-    console.log(`[Room] Perfil liberado explicitamente via /api/room/leave: ${profileId}`);
+    const existing = activeRoomProfiles.get(profileId);
+    // Se uma sessionId foi informada, só libera se for da mesma sessão (evita que aba antiga limpe a nova)
+    if (!sessionId || !existing.sessionId || existing.sessionId === sessionId) {
+      activeRoomProfiles.delete(profileId);
+      console.log(`[Room] Perfil "${profileId}" liberado via /api/room/leave (Sessão: ${sessionId || 'n/a'})`);
+    }
   }
+
   if (peerId) {
     for (const [pId, data] of activeRoomProfiles.entries()) {
       if (data.peerId === peerId) {
-        activeRoomProfiles.delete(pId);
-        console.log(`[Room] Perfil ${pId} liberado por peerId ${peerId}`);
+        if (!sessionId || !data.sessionId || data.sessionId === sessionId) {
+          activeRoomProfiles.delete(pId);
+          console.log(`[Room] Perfil ${pId} liberado por peerId ${peerId}`);
+        }
       }
     }
   }
+
   res.json({ success: true, occupiedProfiles: getOccupiedProfiles() });
 });
 
 let currentHttpServer = null;
+
+function verifyWebSocketClient(info, cb) {
+  try {
+    const req = info.req;
+    // Requisições diretas locais do Host no Electron são permitidas
+    if (isLocalRequest(req)) {
+      return cb(true);
+    }
+
+    // Requisições remotas exigem token de sala válido na URL query string
+    const url = new URL(req.url, 'http://localhost');
+    const token = url.searchParams.get('token');
+    if (isValidToken(token)) {
+      return cb(true);
+    }
+
+    console.warn(`[PeerServer WS] Conexão WebSocket rejeitada: token ausente ou inválido (IP: ${req.socket?.remoteAddress})`);
+    return cb(false, 401, 'Unauthorized');
+  } catch (err) {
+    console.error('[PeerServer WS] Erro durante verificação de WebSocket:', err);
+    return cb(false, 500, 'Internal Server Error');
+  }
+}
 
 // ==========================================
 // INICIAR SERVIDOR HTTP NATIVO (PORTA 3000)
@@ -889,11 +1007,19 @@ async function startServer() {
   const httpServer = http.createServer(app);
   currentHttpServer = httpServer;
 
+  const { WebSocketServer } = require('ws');
+
   const peerServerHttp = ExpressPeerServer(httpServer, {
     debug: false,
     path: '/',
     allow_discovery: true,
-    alive_timeout: 60000
+    alive_timeout: 60000,
+    createWebSocketServer: (wsOptions) => {
+      return new WebSocketServer({
+        ...wsOptions,
+        verifyClient: verifyWebSocketClient
+      });
+    }
   });
 
   peerServerHttp.on('connection', (client) => {
@@ -915,10 +1041,10 @@ async function startServer() {
   });
 
   app.use('/peerjs', (req, res, next) => {
-    if (!isLocalRequest(req) && currentRoomToken) {
+    if (!isLocalRequest(req)) {
       const token = req.query.token || req.headers['x-room-token'];
       if (!isValidToken(token)) {
-        console.warn(`[PeerServer] Conexão remota rejeitada por falta de token válido (IP: ${req.ip})`);
+        console.warn(`[PeerServer HTTP] Requisição remota rejeitada por falta de token válido (IP: ${req.ip})`);
         return res.status(403).json({ error: 'unauthorized_peer', message: 'Token de sala inválido' });
       }
     }
@@ -938,11 +1064,20 @@ async function startServer() {
 }
 
 function stopServer() {
-  if (currentHttpServer) {
-    currentHttpServer.close();
-    currentHttpServer = null;
-    console.log('[Server] Servidor HTTP encerrado.');
-  }
+  return new Promise((resolve) => {
+    if (currentHttpServer) {
+      if (typeof currentHttpServer.closeAllConnections === 'function') {
+        try { currentHttpServer.closeAllConnections(); } catch (e) {}
+      }
+      currentHttpServer.close(() => {
+        currentHttpServer = null;
+        console.log('[Server] Servidor HTTP encerrado.');
+        resolve();
+      });
+    } else {
+      resolve();
+    }
+  });
 }
 
 if (require.main === module) {
@@ -959,5 +1094,6 @@ module.exports = {
   getOrCreateRoomToken,
   regenerateRoomToken,
   isValidToken,
+  verifyWebSocketClient,
   app
 };

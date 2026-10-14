@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Heart, MicOff, VideoOff, Eye, EyeOff, Minus, Maximize2 } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 import { useProfiles } from '../../../context/ProfileContext';
@@ -25,6 +25,14 @@ export function FloatingParticipantAvatars() {
   const { myProfile, otherProfile } = useProfiles();
   const [localAvatarErr, setLocalAvatarErr] = useState(false);
   const [remoteAvatarErr, setRemoteAvatarErr] = useState(false);
+
+  useEffect(() => {
+    setLocalAvatarErr(false);
+  }, [myProfile?.avatar]);
+
+  useEffect(() => {
+    setRemoteAvatarErr(false);
+  }, [otherProfile?.avatar]);
 
   if (isFloatingAvatarsHidden) {
     return (

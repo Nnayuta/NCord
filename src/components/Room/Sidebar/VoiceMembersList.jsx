@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Heart, Mic, MicOff, Video, VideoOff, Volume2, Tv, Sparkles } from 'lucide-react';
 import { useProfiles } from '../../../context/ProfileContext';
 import { useWebRTC } from '../../../context/WebRTCContext';
@@ -7,6 +7,14 @@ export function VoiceMembersList({ onOpenSettings }) {
   const { myProfile, otherProfile } = useProfiles();
   const [localAvatarErr, setLocalAvatarErr] = useState(false);
   const [remoteAvatarErr, setRemoteAvatarErr] = useState(false);
+
+  useEffect(() => {
+    setLocalAvatarErr(false);
+  }, [myProfile?.avatar]);
+
+  useEffect(() => {
+    setRemoteAvatarErr(false);
+  }, [otherProfile?.avatar]);
   const {
     isMicMuted,
     isVideoOff,

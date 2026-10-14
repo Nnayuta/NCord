@@ -41,6 +41,10 @@ export function VideoCard({
   const [playBlocked, setPlayBlocked] = useState(false);
   const [avatarErr, setAvatarErr] = useState(false);
 
+  useEffect(() => {
+    setAvatarErr(false);
+  }, [profile?.avatar]);
+
   const tryPlay = (el) => {
     if (!el) return;
     el.play().then(() => setPlayBlocked(false)).catch(() => setPlayBlocked(true));

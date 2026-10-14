@@ -9,6 +9,7 @@
     "start": "node server.js",
     "dev": "concurrently -k -p \"[{name}]\" -n \"SERVER,VITE\" -c \"cyan,magenta\" \"node server.js\" \"vite\"",
     "build": "vite build",
+    "test": "node --test test/*.test.js",
     "desktop": "electron .",
     "dev:desktop": "concurrently -k -p \"[{name}]\" -n \"SERVER,VITE,DESKTOP\" -c \"cyan,magenta,yellow\" \"node server.js\" \"vite\" \"electron .\"",
     "dist": "npm run build && electron-builder --win portable",

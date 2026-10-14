@@ -809,39 +809,7 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
               streamOptions.audio = 'loopback';
             }
           } else {
-            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando captura de áudio do sistema.`);
-            try {
-              activeProcessCapture = new LoopbackCapture();
-              activeProcessCapture.startSystemAudio((chunk) => {
-                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                  mainWindow.webContents.send('process-audio-chunk', chunk);
-                }
-              });
-              hasProcessAudio = true;
-            } catch (sysErr) {
-              console.warn('[Electron] Falha ao iniciar áudio do sistema para janela não identificada:', sysErr.message);
-              streamOptions.audio = 'loopback';
-            }
-          }
-        } else if (Array.isArray(excludeApps) && excludeApps.length > 0 && await startExclusionCapture(excludeApps)) {
-          // Tela inteira com apps excluídos: captura todos os apps, menos os escolhidos (e o próprio LoveChat)
-          hasProcessAudio = true;
-          exclusionApplied = true;
-          console.log(`[Electron] Áudio de tela cheia por exclusão ativo. Apps silenciados: ${excludeApps.join(', ')}`);
-        } else {
-          // Captura de tela inteira: capturar todo o áudio do computador via render endpoint padrão
-          console.log('[Electron] Iniciando captura de áudio do sistema para transmissão de tela cheia...');
-          try {
-            activeProcessCapture = new LoopbackCapture();
-            activeProcessCapture.startSystemAudio((chunk) => {
-              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                mainWindow.webContents.send('process-audio-chunk', chunk);
-              }
-            });
-            hasProcessAudio = true;
-            console.log('[Electron] Captura de áudio de tela cheia ativa com sucesso via startSystemAudio!');
-          } catch (sysAudioErr) {
-            console.warn('[Electron] Falha ao iniciar startSystemAudio para tela cheia, tentando fallback por processo:', sysAudioErr.message);
+            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando captura com exclusão do LoveChat.`);
             try {
               activeProcessCapture = new LoopbackCapture();
               const currentPid = process.pid;
@@ -851,11 +819,65 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
                 }
               });
               hasProcessAudio = true;
-              console.log('[Electron] Captura de áudio de tela cheia ativa via fallback de processo!');
-            } catch (fallbackErr) {
-              console.error('[Electron] Falha total ao iniciar captura de áudio para tela cheia:', fallbackErr.message);
-              activeProcessCapture = null;
-              streamOptions.audio = 'loopback';
+              exclusionApplied = true;
+              console.log(`[Electron] Captura de áudio para janela não identificada ativa via exclusão de LoveChat (PID ${currentPid})!`);
+            } catch (exclErr) {
+              console.warn('[Electron] Falha ao iniciar exclusão para janela não identificada, tentando startSystemAudio:', exclErr.message);
+              try {
+                activeProcessCapture = new LoopbackCapture();
+                activeProcessCapture.startSystemAudio((chunk) => {
+                  if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                    mainWindow.webContents.send('process-audio-chunk', chunk);
+                  }
+                });
+                hasProcessAudio = true;
+              } catch (sysErr) {
+                console.warn('[Electron] Falha ao iniciar áudio do sistema para janela não identificada:', sysErr.message);
+                streamOptions.audio = 'loopback';
+              }
+            }
+          }
+        } else if (Array.isArray(excludeApps) && excludeApps.length > 0 && await startExclusionCapture(excludeApps)) {
+          // Tela inteira com apps excluídos: captura todos os apps, menos os escolhidos (e o próprio LoveChat)
+          hasProcessAudio = true;
+          exclusionApplied = true;
+          console.log(`[Electron] Áudio de tela cheia por exclusão ativo. Apps silenciados: ${excludeApps.join(', ')}`);
+        } else {
+          // Captura de tela inteira padrão: capturar todo o áudio do computador EXCLUINDO o próprio LoveChat (anti-eco nativo do WASAPI)
+          console.log('[Electron] Iniciando captura de áudio de tela cheia anti-eco (excluindo processo LoveChat)...');
+          try {
+            activeProcessCapture = new LoopbackCapture();
+            const currentPid = process.pid;
+            activeProcessCapture.start(currentPid, false, (chunk) => {
+              if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                mainWindow.webContents.send('process-audio-chunk', chunk);
+              }
+            });
+            hasProcessAudio = true;
+            exclusionApplied = true;
+            console.log(`[Electron] Captura de áudio de tela cheia anti-eco ativa com sucesso via WASAPI exclude (PID ${currentPid})!`);
+          } catch (exclErr) {
+            console.warn('[Electron] Falha ao iniciar WASAPI exclude direto, tentando startExclusionCapture:', exclErr.message);
+            if (await startExclusionCapture([])) {
+              hasProcessAudio = true;
+              exclusionApplied = true;
+              console.log('[Electron] Captura de tela cheia ativa via sincronização de exclusão por janela.');
+            } else {
+              console.warn('[Electron] Falha nas rotinas de exclusão, tentando startSystemAudio como último recurso:', exclErr.message);
+              try {
+                activeProcessCapture = new LoopbackCapture();
+                activeProcessCapture.startSystemAudio((chunk) => {
+                  if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
+                    mainWindow.webContents.send('process-audio-chunk', chunk);
+                  }
+                });
+                hasProcessAudio = true;
+                console.log('[Electron] Captura de áudio de tela cheia ativa via fallback startSystemAudio.');
+              } catch (fallbackErr) {
+                console.error('[Electron] Falha total ao iniciar captura de áudio para tela cheia:', fallbackErr.message);
+                activeProcessCapture = null;
+                streamOptions.audio = 'loopback';
+              }
             }
           }
         }

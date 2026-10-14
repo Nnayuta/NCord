@@ -22,13 +22,21 @@ import {
   Zap,
   Clapperboard,
   Gamepad2,
-  Sliders
+  Sliders,
+  Cpu,
+  Monitor,
+  Gauge
 } from 'lucide-react';
 import { useProfiles } from '../../context/ProfileContext';
 import { useWebRTC, CAMERA_FILTERS, CAMERA_RESOLUTIONS } from '../../context/WebRTCContext';
 import { useServer } from '../../context/ServerContext';
 import { useAutoUpdate } from '../../context/UpdateContext';
-import { QUALITY_PRESETS } from '../../services/webrtcEngine';
+import {
+  QUALITY_PRESETS,
+  STREAM_RESOLUTIONS,
+  STREAM_FPS_OPTIONS,
+  getModularStreamPreset
+} from '../../services/webrtcEngine';
 import { QRCodeCanvas } from '../Common/QRCodeCanvas';
 import { useToast } from '../../hooks/useToast';
 import { isElectron } from '../../services/electronBridge';
@@ -73,6 +81,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'profile' }) {
     refreshCameraDevices,
     getCameraStream,
     activePreset,
+    streamResolution,
+    streamFps,
+    changeModularQuality,
     changeQualityPreset
   } = useWebRTC();
 
@@ -489,37 +500,89 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'profile' }) {
             {activeTab === 'quality' && (
               <div className="settings-quality-section">
                 <p className="settings-hint" style={{ marginBottom: '14px' }}>
-                  Ajusta dinamicamente a taxa de bits (bitrate), FPS e resolução para a sua conexão LAN ou ZeroTier sem limites:
+                  Configuração modular de resolução e taxa de quadros. O bitrate ideal é calculado automaticamente para fluidez contínua sem engasgos:
                 </p>
-                <div className="quality-options-list">
-                  {presetsList.map((p) => {
-                    const Icon = p.icon;
-                    const isActive = activePreset.id === p.id;
-                    return (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={`quality-option ${isActive ? 'active' : ''}`}
-                        onClick={() => {
-                          changeQualityPreset(p.key);
-                          showToast(`Qualidade: ${p.label} ativada! 🚀`, 'success');
-                        }}
-                      >
-                        <div className="quality-opt-icon">
-                          <Icon size={20} />
-                        </div>
-                        <div className="quality-opt-info">
-                          <div className="quality-opt-title">
-                            {p.label}
-                            {isActive && <span className="badge-recom">Ativo</span>}
+
+                {/* Seleção de Resolução */}
+                <div className="modular-quality-section">
+                  <label className="modular-section-label">
+                    <Monitor size={15} color="#f43f8e" />
+                    <span>Resolução de Vídeo</span>
+                  </label>
+                  <div className="modular-res-grid">
+                    {Object.values(STREAM_RESOLUTIONS).map((res) => {
+                      const isSelected = streamResolution === res.id;
+                      return (
+                        <button
+                          key={res.id}
+                          type="button"
+                          className={`modular-opt-card ${isSelected ? 'active' : ''}`}
+                          onClick={() => changeModularQuality(res.id, streamFps)}
+                        >
+                          <div className="modular-opt-header">
+                            <span className="modular-opt-title">{res.label}</span>
+                            {isSelected && <Check size={16} className="profile-check-icon" />}
                           </div>
-                          <div className="quality-opt-desc">{p.description}</div>
-                        </div>
-                        {isActive && <Check size={18} className="profile-check-icon" />}
-                      </button>
-                    );
-                  })}
+                          <span className="modular-opt-desc">{res.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+
+                {/* Seleção de FPS */}
+                <div className="modular-quality-section">
+                  <label className="modular-section-label">
+                    <Cpu size={15} color="#f43f8e" />
+                    <span>Taxa de Quadros (FPS)</span>
+                  </label>
+                  <div className="modular-fps-grid">
+                    {STREAM_FPS_OPTIONS.map((opt) => {
+                      const isSelected = Number(streamFps) === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          className={`modular-opt-card modular-fps-card ${isSelected ? 'active' : ''}`}
+                          onClick={() => changeModularQuality(streamResolution, opt.id)}
+                        >
+                          <div className="modular-opt-header">
+                            <span className="modular-opt-title">{opt.label}</span>
+                            <span className="modular-fps-badge">{opt.badge}</span>
+                            {isSelected && <Check size={16} className="profile-check-icon" />}
+                          </div>
+                          <span className="modular-opt-desc">{opt.desc}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Card de Resumo do Bitrate Automático */}
+                {(() => {
+                  const preset = getModularStreamPreset(streamResolution, streamFps);
+                  const bitrateMbps = (preset.screenBitrate / 1_000_000).toFixed(1);
+                  return (
+                    <div className="modular-summary-card">
+                      <div className="modular-summary-icon">
+                        <Gauge size={22} color="#f43f8e" />
+                      </div>
+                      <div className="modular-summary-info">
+                        <div className="modular-summary-title">
+                          <span>Bitrate Automático: <strong>{bitrateMbps} Mbps</strong></span>
+                          <span className="modular-auto-tag">Auto</span>
+                        </div>
+                        <div className="modular-summary-desc">
+                          Taxa de compressão adaptada em tempo real para manter {streamFps} FPS sem congelamentos na transmissão.
+                        </div>
+                        <div className="modular-summary-specs">
+                          <span>🔊 Áudio Opus 320 kbps VBR Broadcast</span>
+                          <span>⚡ Fluidez Prioritária Contínua</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

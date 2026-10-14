@@ -11,6 +11,9 @@ class AudioWorkletManager {
     this.isInitialized = false;
     this.isAntiEchoEnabled = true;
     this.activePids = new Map(); // pid -> { volume: 1.0, muted: false }
+    this.totalPCMBytes = 0;
+    this.totalPCMChunks = 0;
+    this.lastPCMAt = 0;
   }
 
   async init() {
@@ -51,7 +54,7 @@ class AudioWorkletManager {
       });
 
       this.masterGain = this.audioCtx.createGain();
-      this.masterGain.gain.value = 1.0;
+      this.masterGain.gain.value = 1.25; // Ganho calibrado para loudness de broadcast (+2 dB) sem clipping
 
       this.destination = this.audioCtx.createMediaStreamDestination();
 
@@ -74,6 +77,11 @@ class AudioWorkletManager {
       this.audioCtx.resume().catch(() => {});
     }
     try {
+      const byteLength = arrayBuffer?.byteLength || arrayBuffer?.length || 0;
+      this.totalPCMBytes += byteLength;
+      this.totalPCMChunks += 1;
+      this.lastPCMAt = Date.now();
+
       this.workletNode.port.postMessage({
         type: 'pcm',
         id: sourceId,
@@ -89,9 +97,17 @@ class AudioWorkletManager {
     this.workletNode.port.postMessage({ type: 'clear' });
   }
 
+  getPCMStats() {
+    return {
+      totalBytes: this.totalPCMBytes,
+      totalChunks: this.totalPCMChunks,
+      lastPCMAt: this.lastPCMAt
+    };
+  }
+
   setMasterVolume(value) {
     if (this.masterGain && this.audioCtx) {
-      const vol = Math.max(0, Math.min(1.5, Number(value) || 0));
+      const vol = Math.max(0, Math.min(2.0, Number(value) || 0));
       this.masterGain.gain.setValueAtTime(vol, this.audioCtx.currentTime);
     }
   }
@@ -104,10 +120,18 @@ class AudioWorkletManager {
       const track = this.destination.stream.getAudioTracks()[0] || null;
       if (track) {
         track.enabled = true;
+        if ('contentHint' in track) {
+          track.contentHint = 'music';
+        }
       }
       return track;
     }
     return null;
+  }
+
+  isMixedAudioTrack(track) {
+    if (!track || !this.destination?.stream) return false;
+    return this.destination.stream.getAudioTracks().includes(track);
   }
 
   destroy() {

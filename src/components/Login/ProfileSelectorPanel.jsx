@@ -24,6 +24,14 @@ export function ProfileSelectorPanel() {
   const fileInputRefUser1 = useRef(null);
   const fileInputRefUser2 = useRef(null);
 
+  useEffect(() => {
+    setU1AvatarErr(false);
+  }, [profiles?.user1?.avatar]);
+
+  useEffect(() => {
+    setU2AvatarErr(false);
+  }, [profiles?.user2?.avatar]);
+
   const isUser1Occupied = Array.isArray(occupiedProfiles) && occupiedProfiles.includes('user1');
   const isUser2Occupied = Array.isArray(occupiedProfiles) && occupiedProfiles.includes('user2');
 
