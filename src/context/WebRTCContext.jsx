@@ -40,6 +40,7 @@ export function WebRTCProvider({ children }) {
   const { showToast } = useToast();
   const { myProfile, otherProfile, applyRemoteProfileUpdate } = useProfiles();
   const { mode, remoteIp } = useServer();
+  const isHost = mode === 'host';
 
   const [inCall, setInCall] = useState(false);
   const [connectionState, setConnectionState] = useState('idle'); // idle | connecting | connected | disconnected
@@ -973,6 +974,7 @@ export function WebRTCProvider({ children }) {
       // Inicializar AudioWorklet se estiver rodando no Electron
       if (isElectron) {
         await audioWorkletManager.init().catch(() => {});
+        audioWorkletManager.clearBuffer();
       }
 
       let stream = null;
@@ -1060,15 +1062,19 @@ export function WebRTCProvider({ children }) {
       }
 
       // Priorização de áudio correta:
-      // - No Electron: WASAPI do processo/sistema via AudioWorklet quando ativo
-      // - Fallback Electron: áudio do desktop entregue pelo Chromium, se disponível
+      // - No Electron: WASAPI exclusivo do processo/sistema via AudioWorklet quando ativo
+      // - Para janelas individuais: NUNCA usar rawAudioTrack (loopback Chromium captura todas as janelas do Windows)
+      // - Fallback de tela inteira: áudio do desktop entregue pelo Chromium se for tela cheia
       // - No Navegador Web: áudio da aba/sistema capturado pelo getDisplayMedia
       let audioTrackToSend = null;
       const rawAudioTrack = stream.getAudioTracks()[0] || null;
 
       if (isElectron) {
+        const isWindowSource = typeof sourceId === 'string' && sourceId.startsWith('window:');
         const wasapiAudioTrack = streamAudio && useNativeAudio ? audioWorkletManager.getMixedAudioTrack() : null;
-        audioTrackToSend = streamAudio ? (wasapiAudioTrack || rawAudioTrack || createDummyAudioTrack()) : createDummyAudioTrack();
+        audioTrackToSend = streamAudio
+          ? (wasapiAudioTrack || (!isWindowSource ? rawAudioTrack : null) || createDummyAudioTrack())
+          : createDummyAudioTrack();
       } else {
         audioTrackToSend = rawAudioTrack || createDummyAudioTrack();
       }
@@ -1091,6 +1097,7 @@ export function WebRTCProvider({ children }) {
 
       if (canDoInFlightReplace) {
         try {
+          audioWorkletManager.clearBuffer();
           const oldVideoTrack = localScreenStreamRef.current?.getVideoTracks()[0];
 
           const combinedTracks = [videoTrack, audioTrackToSend].filter(Boolean);

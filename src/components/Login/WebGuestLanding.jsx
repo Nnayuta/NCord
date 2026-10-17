@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Heart,
   Lock,
@@ -10,7 +10,8 @@ import {
   Edit2,
   Check,
   RefreshCw,
-  UserCheck
+  UserCheck,
+  PowerOff
 } from 'lucide-react';
 import { useServer } from '../../context/ServerContext';
 import { useProfiles } from '../../context/ProfileContext';
@@ -23,7 +24,7 @@ export function WebGuestLanding() {
   const { joinRoom } = useWebRTC();
   const { profiles, activeProfileId, selectActiveProfile, updateProfileName, updateProfileAvatar } = useProfiles();
 
-  const [tokenStatus, setTokenStatus] = useState('checking'); // 'checking' | 'valid' | 'invalid'
+  const [tokenStatus, setTokenStatus] = useState('checking'); // 'checking' | 'valid' | 'invalid' | 'disabled'
   const [inputToken, setInputToken] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -49,26 +50,43 @@ export function WebGuestLanding() {
     setGuestAvatarErr(false);
   }, [guestProfile?.avatar]);
 
-  // Verificar token inicial
-  useEffect(() => {
-    async function checkInitialToken() {
-      const token = apiService.getRoomToken();
-      if (!token) {
-        setTokenStatus('invalid');
+  // Verificar status web e token inicial
+  const checkInitialToken = useCallback(async () => {
+    setIsValidating(true);
+    setErrorMsg('');
+
+    try {
+      const statusRes = await apiService.getWebAccessStatus();
+      if (statusRes && statusRes.enabled === false) {
+        setTokenStatus('disabled');
+        setIsValidating(false);
         return;
       }
-      try {
-        const isValid = await apiService.verifyToken(token);
-        setTokenStatus(isValid ? 'valid' : 'invalid');
-        if (!isValid) {
-          setErrorMsg('A chave no link expirou ou é inválida.');
-        }
-      } catch (e) {
-        setTokenStatus('valid'); // Fallback tolerante se já estiver dentro
-      }
+    } catch (e) {}
+
+    const token = apiService.getRoomToken();
+    if (!token) {
+      setTokenStatus('invalid');
+      setIsValidating(false);
+      return;
     }
-    checkInitialToken();
+
+    try {
+      const isValid = await apiService.verifyToken(token);
+      setTokenStatus(isValid ? 'valid' : 'invalid');
+      if (!isValid) {
+        setErrorMsg('A chave no link expirou ou é inválida.');
+      }
+    } catch (e) {
+      setTokenStatus('valid'); // Fallback tolerante se já estiver dentro
+    } finally {
+      setIsValidating(false);
+    }
   }, []);
+
+  useEffect(() => {
+    checkInitialToken();
+  }, [checkInitialToken]);
 
   // Garantir que no Web Guest o perfil ativo seja o selecionado
   useEffect(() => {
@@ -139,7 +157,40 @@ export function WebGuestLanding() {
     );
   }
 
-  // 2. Estado de Bloqueio por Chave / Token
+  // 2. Estado de Conexão Web Desativada pelo Anfitrião
+  if (tokenStatus === 'disabled') {
+    return (
+      <div className="web-guest-card web-guest-disabled-card">
+        <div className="web-guest-header">
+          <div className="web-disabled-badge">
+            <PowerOff size={28} color="#94a3b8" />
+          </div>
+          <h3>Conexão Web Desativada</h3>
+          <p>
+            O anfitrião ainda não iniciou a Conexão Web no aplicativo LoveChat.
+          </p>
+        </div>
+
+        <div className="web-disabled-info-box">
+          <p>
+            Para liberar o acesso ao cantinho pelo navegador, o anfitrião precisa abrir o aplicativo no computador e clicar em <strong>"Iniciar Versão Web"</strong>.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className="btn-retry-web-status"
+          onClick={checkInitialToken}
+          disabled={isValidating}
+        >
+          <RefreshCw size={16} className={isValidating ? 'spin' : ''} />
+          <span>{isValidating ? 'Verificando...' : 'Verificar se foi iniciada'}</span>
+        </button>
+      </div>
+    );
+  }
+
+  // 3. Estado de Bloqueio por Chave / Token
   if (tokenStatus === 'invalid') {
     return (
       <div className="web-guest-card">

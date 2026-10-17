@@ -13,6 +13,11 @@ app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 // ==========================================
 let LoopbackCapture = null;
 let GetWindowThreadProcessId = null;
+let FindWindowEx = null;
+let FindWindowW = null;
+let OpenProcess = null;
+let QueryFullProcessImageNameW = null;
+let CloseHandle = null;
 let activeProcessCapture = null;
 
 try {
@@ -27,21 +32,102 @@ try {
   const koffi = require('koffi');
   const user32 = koffi.load('user32.dll');
   GetWindowThreadProcessId = user32.func('uint32 __stdcall GetWindowThreadProcessId(intptr_t hWnd, _Out_ uint32 *lpdwProcessId)');
-  console.log('[Electron] Módulo Koffi (GetWindowThreadProcessId) carregado com sucesso.');
+  FindWindowEx = user32.func('intptr_t __stdcall FindWindowExA(intptr_t hWndParent, intptr_t hWndChildAfter, const char *lpszClass, const char *lpszWindow)');
+  FindWindowW = user32.func('intptr_t __stdcall FindWindowW(const char16_t *lpClassName, const char16_t *lpWindowName)');
+
+  const kernel32 = koffi.load('kernel32.dll');
+  OpenProcess = kernel32.func('intptr_t __stdcall OpenProcess(uint32 dwDesiredAccess, bool bInheritHandle, uint32 dwProcessId)');
+  QueryFullProcessImageNameW = kernel32.func('bool __stdcall QueryFullProcessImageNameW(intptr_t hProcess, uint32 dwFlags, _Out_ uint16_t *lpExeName, _Inout_ uint32 *lpdwSize)');
+  CloseHandle = kernel32.func('bool __stdcall CloseHandle(intptr_t hObject)');
+  console.log('[Electron] Módulo Koffi (Win32 User32/Kernel32 APIs) carregado com sucesso.');
 } catch (err) {
-  console.warn('[Electron] Aviso: Não foi possível carregar koffi para resolução de PID:', err.message);
+  console.warn('[Electron] Aviso: Não foi possível carregar koffi para APIs Win32:', err.message);
 }
 
-function getPidFromHwnd(hwndNumber) {
-  if (!hwndNumber) return 0;
-  try {
-    const num = typeof hwndNumber === 'string' ? parseInt(hwndNumber, 10) : Number(hwndNumber);
-    if (!num || isNaN(num) || num <= 0) return 0;
+function getProcessNameByPid(pid) {
+  if (!pid || pid <= 0) return '';
+  if (OpenProcess && QueryFullProcessImageNameW && CloseHandle) {
+    try {
+      const hProc = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+      if (hProc && hProc !== 0) {
+        const buf = new Uint16Array(1024);
+        const size = [1024];
+        const ok = QueryFullProcessImageNameW(hProc, 0, buf, size);
+        CloseHandle(hProc);
+        if (ok && size[0] > 0) {
+          const fullPath = Buffer.from(buf.buffer, 0, size[0] * 2).toString('utf16le');
+          return path.basename(fullPath).toLowerCase();
+        }
+      }
+    } catch (e) {}
+  }
+  return '';
+}
 
-    if (GetWindowThreadProcessId) {
+function getPidFromHwnd(hwndNumber, windowTitle = null) {
+  if (hwndNumber === undefined || hwndNumber === null || hwndNumber === '') return 0;
+  try {
+    let num = typeof hwndNumber === 'string' ? parseInt(hwndNumber, 10) : Number(hwndNumber);
+    if (isNaN(num) || num === 0) num = 0;
+
+    if (GetWindowThreadProcessId && num !== 0) {
+      // 1. Tentar com o HWND direto (signed intptr_t)
       const pidOut = [0];
       GetWindowThreadProcessId(num, pidOut);
-      if (pidOut[0] > 0) return pidOut[0];
+      let pid = pidOut[0];
+
+      // 2. Se o número for negativo (bit 31/63 setado em string vinda do WebRTC/Chromium), tentar unsigned 32-bit
+      if ((!pid || pid <= 0) && num < 0) {
+        const uNum = (num >>> 0);
+        const uPidOut = [0];
+        GetWindowThreadProcessId(uNum, uPidOut);
+        if (uPidOut[0] > 0) {
+          pid = uPidOut[0];
+          num = uNum;
+        }
+      }
+
+      // 3. Se for ApplicationFrameHost (UWP wrapper de apps como Spotify da Store, Netflix, WhatsApp),
+      // buscar a janela filha real (Windows.UI.Core.CoreWindow) para obter o PID do processo do aplicativo real
+      if (pid > 0 && FindWindowEx) {
+        try {
+          const coreHwnd = FindWindowEx(num, 0, 'Windows.UI.Core.CoreWindow', null);
+          if (coreHwnd && coreHwnd !== 0) {
+            const childPidOut = [0];
+            GetWindowThreadProcessId(coreHwnd, childPidOut);
+            if (childPidOut[0] > 0) {
+              pid = childPidOut[0];
+            }
+          }
+        } catch (e) {}
+      }
+
+      if (pid > 0) return pid;
+    }
+
+    // 4. Fallback: Se o HWND do desktopCapturer não resolveu, tentar encontrar a janela pelo título
+    if (windowTitle && typeof windowTitle === 'string' && windowTitle.trim() && FindWindowW && GetWindowThreadProcessId) {
+      try {
+        const topHwnd = FindWindowW(null, windowTitle.trim());
+        if (topHwnd && topHwnd !== 0) {
+          const pidOut = [0];
+          GetWindowThreadProcessId(topHwnd, pidOut);
+          let pid = pidOut[0];
+
+          if (pid > 0 && FindWindowEx) {
+            try {
+              const coreHwnd = FindWindowEx(topHwnd, 0, 'Windows.UI.Core.CoreWindow', null);
+              if (coreHwnd && coreHwnd !== 0) {
+                const childPidOut = [0];
+                GetWindowThreadProcessId(coreHwnd, childPidOut);
+                if (childPidOut[0] > 0) pid = childPidOut[0];
+              }
+            } catch (e) {}
+          }
+
+          if (pid > 0) return pid;
+        }
+      } catch (e) {}
     }
   } catch (err) {
     console.warn(`[Electron] Falha ao resolver PID para HWND ${hwndNumber}:`, err.message);
@@ -714,7 +800,7 @@ ipcMain.handle('get-desktop-sources', async () => {
       let pid = 0;
       if (isWindow) {
         const hwnd = parseInt(source.id.split(':')[1], 10);
-        pid = getPidFromHwnd(hwnd);
+        pid = getPidFromHwnd(hwnd, source.name);
       }
       return {
         id: source.id,
@@ -790,52 +876,36 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
         if (isWindowChoice) {
           const rawHwnd = chosen.id.split(':')[1];
           const hwndNum = parseInt(rawHwnd, 10);
-          const targetPid = getPidFromHwnd(hwndNum);
+          const targetPid = getPidFromHwnd(hwndNum, chosen.name || sourceName);
 
           if (targetPid > 0) {
-            console.log(`[Electron] Iniciando captura exclusiva de áudio WASAPI para PID ${targetPid} (HWND ${hwndNum}, "${chosen.name}")...`);
+            const exeName = getProcessNameByPid(targetPid);
+            // explorer.exe e hosts de sistema NÃO podem ter includeProcessTree=true,
+            // pois no Windows quase todos os programas do usuário são filhos do explorer.exe!
+            const isShellHost = EXCLUSION_SKIP_NAMES.has(exeName) || exeName === 'explorer.exe';
+            const includeProcessTree = !isShellHost;
+
+            console.log(`[Electron] Iniciando captura exclusiva de áudio WASAPI para PID ${targetPid} (${exeName || 'app'}, HWND ${hwndNum}, árvore: ${includeProcessTree}, "${chosen.name}")...`);
             try {
               activeProcessCapture = new LoopbackCapture();
-              activeProcessCapture.start(targetPid, true, (chunk) => {
+              activeProcessCapture.start(targetPid, includeProcessTree, (chunk) => {
                 if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
                   mainWindow.webContents.send('process-audio-chunk', chunk);
                 }
               });
               hasProcessAudio = true;
-              console.log(`[Electron] Captura de áudio de processo ativa com sucesso para o PID ${targetPid}!`);
+              console.log(`[Electron] Captura exclusiva de áudio de processo ativa com sucesso para PID ${targetPid} (${exeName})!`);
             } catch (captureErr) {
               console.error('[Electron] Falha ao iniciar LoopbackCapture no PID alvo:', captureErr);
               activeProcessCapture = null;
-              streamOptions.audio = 'loopback';
+              hasProcessAudio = false;
             }
           } else {
-            console.warn(`[Electron] PID não identificado para a janela ${chosen.id} (HWND: ${hwndNum}). Usando captura com exclusão do LoveChat.`);
-            try {
-              activeProcessCapture = new LoopbackCapture();
-              const currentPid = process.pid;
-              activeProcessCapture.start(currentPid, false, (chunk) => {
-                if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                  mainWindow.webContents.send('process-audio-chunk', chunk);
-                }
-              });
-              hasProcessAudio = true;
-              exclusionApplied = true;
-              console.log(`[Electron] Captura de áudio para janela não identificada ativa via exclusão de LoveChat (PID ${currentPid})!`);
-            } catch (exclErr) {
-              console.warn('[Electron] Falha ao iniciar exclusão para janela não identificada, tentando startSystemAudio:', exclErr.message);
-              try {
-                activeProcessCapture = new LoopbackCapture();
-                activeProcessCapture.startSystemAudio((chunk) => {
-                  if (mainWindow && !mainWindow.isDestroyed() && chunk && chunk.length > 0) {
-                    mainWindow.webContents.send('process-audio-chunk', chunk);
-                  }
-                });
-                hasProcessAudio = true;
-              } catch (sysErr) {
-                console.warn('[Electron] Falha ao iniciar áudio do sistema para janela não identificada:', sysErr.message);
-                streamOptions.audio = 'loopback';
-              }
-            }
+            // SEGURANÇA E PRIVACIDADE: Se o PID da janela específica não puder ser identificado,
+            // NUNCA fazer fallback para capturar o áudio do computador todo!
+            // O usuário escolheu transmitir apenas ESTA janela, logo nenhuma outra janela deve vazar.
+            console.warn(`[Electron] PID exclusivo não identificado para a janela ${chosen.id} (HWND: ${hwndNum}, "${chosen.name}"). Áudio exclusivo desativado para garantir que nenhuma outra janela seja transmitida.`);
+            hasProcessAudio = false;
           }
         } else if (Array.isArray(excludeApps) && excludeApps.length > 0 && await startExclusionCapture(excludeApps)) {
           // Tela inteira com apps excluídos: captura todos os apps, menos os escolhidos (e o próprio LoveChat)
@@ -1142,6 +1212,10 @@ ipcMain.handle('start-web-tunnel', async () => {
       return { success: false, error: tunnelRes.error || 'Falha ao iniciar o túnel da Cloudflare.' };
     }
 
+    if (server && typeof server.setWebAccessEnabled === 'function') {
+      server.setWebAccessEnabled(true);
+    }
+
     const token = server.getOrCreateRoomToken();
     const networkInfo = getHostNetworkIps();
 
@@ -1161,11 +1235,17 @@ ipcMain.handle('start-web-tunnel', async () => {
 
 ipcMain.handle('stop-web-tunnel', async () => {
   tunnelManager.stopTunnel();
+  if (server && typeof server.setWebAccessEnabled === 'function') {
+    server.setWebAccessEnabled(false);
+  }
   return { success: true };
 });
 
 ipcMain.handle('get-web-tunnel-status', async () => {
   const status = tunnelManager.getStatus();
+  if (server && typeof server.setWebAccessEnabled === 'function') {
+    server.setWebAccessEnabled(Boolean(status?.isOnline));
+  }
   const token = server.getOrCreateRoomToken();
   const networkInfo = getHostNetworkIps();
   return {

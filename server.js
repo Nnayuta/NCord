@@ -94,9 +94,19 @@ if (fs.existsSync(distPath)) {
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ==========================================
-// AUTENTICAÇÃO POR TOKEN SECRETO DA SALA
+// AUTENTICAÇÃO POR TOKEN SECRETO DA SALA E STATUS WEB
 // ==========================================
 let currentRoomToken = null;
+let isWebAccessEnabled = Boolean(process.env.NODE_TEST_CONTEXT || process.env.NODE_ENV === 'test');
+
+function setWebAccessEnabled(enabled) {
+  isWebAccessEnabled = Boolean(enabled);
+  console.log(`[Server] Acesso Web ${isWebAccessEnabled ? 'HABILITADO' : 'DESABILITADO'}.`);
+}
+
+function getWebAccessEnabled() {
+  return isWebAccessEnabled;
+}
 
 function getOrCreateRoomToken() {
   if (!currentRoomToken) {
@@ -149,6 +159,7 @@ function tokenAuthMiddleware(req, res, next) {
   if (
     !p.startsWith('/api/') ||
     p === '/api/auth/verify' ||
+    p === '/api/auth/web-status' ||
     (req.method === 'GET' && p.startsWith('/api/avatar/'))
   ) {
     return next();
@@ -157,6 +168,14 @@ function tokenAuthMiddleware(req, res, next) {
   // Requisições locais diretas (Electron no Host) são liberadas
   if (isLocalRequest(req)) {
     return next();
+  }
+
+  // Se o anfitrião desativou o acesso web, bloqueia requisições remotas
+  if (!isWebAccessEnabled) {
+    return res.status(403).json({
+      error: 'web_access_disabled',
+      message: 'A conexão web está desativada no momento pelo anfitrião.'
+    });
   }
 
   // Requisições remotas (via túnel ou IP externo) precisam do token válido
@@ -191,6 +210,10 @@ app.post('/api/auth/verify', (req, res) => {
   const { token } = req.body || {};
   const valid = isValidToken(token);
   res.json({ success: true, valid });
+});
+
+app.get('/api/auth/web-status', (req, res) => {
+  res.json({ success: true, enabled: isWebAccessEnabled });
 });
 
 app.post('/api/auth/regenerate', (req, res) => {
@@ -980,6 +1003,12 @@ function verifyWebSocketClient(info, cb) {
       return cb(true);
     }
 
+    // Se o anfitrião desativou a conexão web, bloqueia clientes remotos
+    if (!isWebAccessEnabled) {
+      console.warn(`[PeerServer WS] Conexão WebSocket rejeitada: conexão web desativada pelo anfitrião (IP: ${req.socket?.remoteAddress})`);
+      return cb(false, 403, 'Web Access Disabled');
+    }
+
     // Requisições remotas exigem token de sala válido na URL query string
     const url = new URL(req.url, 'http://localhost');
     const token = url.searchParams.get('token');
@@ -1095,5 +1124,7 @@ module.exports = {
   regenerateRoomToken,
   isValidToken,
   verifyWebSocketClient,
+  setWebAccessEnabled,
+  getWebAccessEnabled,
   app
 };

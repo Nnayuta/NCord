@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
-const { app, getOrCreateRoomToken } = require('../server.js');
+const { app, getOrCreateRoomToken, setWebAccessEnabled } = require('../server.js');
 
 let server;
 let baseUrl;
@@ -109,4 +109,25 @@ test('5. /api/my-ip não expõe endereços internos a clientes remotos não auto
   assert.strictEqual(resAuth.status, 200, '/api/my-ip deve responder para parceiro autenticado');
   const ipData = await resAuth.json();
   assert.ok(ipData.ip, 'Deve retornar IP para parceiro autenticado');
+});
+
+test('6. Quando a Conexão Web está desativada, requisições remotas são bloqueadas e /api/auth/web-status indica enabled: false', async () => {
+  setWebAccessEnabled(false);
+  try {
+    const resStatus = await fetch(`${baseUrl}/api/auth/web-status`);
+    const statusData = await resStatus.json();
+    assert.strictEqual(statusData.enabled, false, 'Deve indicar que o acesso web está desativado');
+
+    const resRemote = await fetch(`${baseUrl}/api/db`, {
+      headers: {
+        'X-Forwarded-For': '203.0.113.99',
+        'x-room-token': validToken
+      }
+    });
+    assert.strictEqual(resRemote.status, 403, 'Deve barrar cliente remoto com 403 quando web desativada');
+    const remoteData = await resRemote.json();
+    assert.strictEqual(remoteData.error, 'web_access_disabled');
+  } finally {
+    setWebAccessEnabled(true);
+  }
 });

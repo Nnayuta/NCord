@@ -115,6 +115,18 @@ export class ApiService {
     }
   }
 
+  async getWebAccessStatus() {
+    try {
+      const res = await fetch(this.getFullUrl('/api/auth/web-status'), {
+        headers: this.getHeaders()
+      });
+      if (!res.ok) return { success: false, enabled: false };
+      return await res.json();
+    } catch (e) {
+      return { success: false, enabled: false };
+    }
+  }
+
   async fetchRoomToken() {
     try {
       const res = await fetch(this.getFullUrl('/api/auth/token'), {

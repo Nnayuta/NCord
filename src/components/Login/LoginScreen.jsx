@@ -20,28 +20,30 @@ export function LoginScreen() {
     (window.location.port !== '5173' || hasGuestParams);
 
   return (
-    <section className="login-container">
-      {isElectron && (
-        <div className="login-update-badge-wrapper">
-          <UpdateBadge variant="button" />
-        </div>
-      )}
+    <main className="login-screen-wrapper">
+      <section className="login-container">
+        {isElectron && (
+          <div className="login-update-badge-wrapper">
+            <UpdateBadge variant="button" />
+          </div>
+        )}
 
-      <div className="brand-header">
-        <div className="logo-container">
-          <Heart size={32} />
+        <div className="brand-header">
+          <div className="logo-container">
+            <Heart size={32} />
+          </div>
+          <h1>LoveChat</h1>
+          <p>Nosso cantinho privado de áudio, vídeo e tela 💕</p>
         </div>
-        <h1>LoveChat</h1>
-        <p>Nosso cantinho privado de áudio, vídeo e tela 💕</p>
-      </div>
 
-      {isWebGuest ? (
-        <WebGuestLanding />
-      ) : !isServerConfigured ? (
-        <ServerConnectPanel />
-      ) : (
-        <ProfileSelectorPanel />
-      )}
-    </section>
+        {isWebGuest ? (
+          <WebGuestLanding />
+        ) : !isServerConfigured ? (
+          <ServerConnectPanel />
+        ) : (
+          <ProfileSelectorPanel />
+        )}
+      </section>
+    </main>
   );
 }

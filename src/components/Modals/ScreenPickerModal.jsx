@@ -114,10 +114,13 @@ export function ScreenPickerModal({ isOpen, onClose }) {
       if (excludeApps.length > 0 && result && result.success && !result.exclusionApplied) {
         showToast('Não foi possível excluir apps do áudio; transmitindo o áudio do computador inteiro.', 'error');
       }
+      if (!isDisplay && streamAudio && result && result.success && !result.hasProcessAudio) {
+        showToast('Não foi possível isolar o áudio exclusivo desta janela. O áudio de outras janelas foi bloqueado para sua privacidade.', 'warning');
+      }
       await startScreenShare(selected.id, {
         streamAudio,
         useNativeAudio: Boolean(streamAudio && result?.hasProcessAudio),
-        requestSystemAudioFallback: Boolean(streamAudio && result?.success && !result?.hasProcessAudio)
+        requestSystemAudioFallback: Boolean(isDisplay && streamAudio && result?.success && !result?.hasProcessAudio)
       });
     }
     onClose();
