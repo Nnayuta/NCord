@@ -718,8 +718,8 @@ async function createWindow() {
   // ==========================================
   setupAutoUpdaterIPC(mainWindow);
 
-  // Verificação silenciosa de atualização em segundo plano após 5s
-  setTimeout(async () => {
+  // Verificação de atualização obrigatória na inicialização e periódica
+  const triggerUpdateCheck = async () => {
     try {
       if (mainWindow && !mainWindow.isDestroyed()) {
         const updateInfo = await checkForUpdates();
@@ -728,9 +728,12 @@ async function createWindow() {
         }
       }
     } catch (e) {
-      console.warn('[AutoUpdater] Aviso na checagem automática inicial:', e.message);
+      console.warn('[AutoUpdater] Aviso na checagem automática:', e.message);
     }
-  }, 5000);
+  };
+
+  setTimeout(triggerUpdateCheck, 2000);
+  setInterval(triggerUpdateCheck, 5 * 60 * 1000);
 
   // ==========================================
   // ATALHOS NATIVOS DE TECLADO (CTRL+R, F5, F12)

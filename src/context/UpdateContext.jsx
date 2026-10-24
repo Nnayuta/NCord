@@ -21,12 +21,83 @@ export function UpdateProvider({ children }) {
 
   // Carregar versão atual ao inicializar
   useEffect(() => {
+    if (!isElectron) return;
     electronBridge.getAppVersion().then((res) => {
       if (res && res.version) {
         setCurrentVersion(res.version);
       }
     });
   }, []);
+
+  // Iniciar download da atualização (com suporte a parâmetro direto para auto-start)
+  const startDownload = useCallback(async (customInfo = null) => {
+    const info = customInfo || updateInfo;
+    if (!info || !info.downloadUrl) return;
+
+    setStatus('downloading');
+    setErrorMessage('');
+    setDownloadProgress({
+      percent: 0,
+      speedFormatted: '0 MB/s',
+      downloadedFormatted: '0 MB',
+      totalFormatted: info.assetSize ? `${(info.assetSize / (1024 * 1024)).toFixed(1)} MB` : '0 MB'
+    });
+
+    try {
+      const res = await electronBridge.downloadUpdate(info.downloadUrl);
+      if (res && res.success) {
+        setStatus('downloaded');
+      } else if (res && res.error) {
+        setStatus('error');
+        setErrorMessage(res.error);
+        showToast('Falha no download da atualização.', 'error');
+      }
+    } catch (err) {
+      setStatus('error');
+      setErrorMessage(err.message || 'Erro ao baixar atualização.');
+      showToast('Falha no download da atualização.', 'error');
+    }
+  }, [updateInfo, showToast]);
+
+  // Verificar atualizações manualmente ou em segundo plano
+  const checkUpdates = useCallback(async (isManual = false) => {
+    if (!isElectron) return;
+
+    setStatus('checking');
+    setErrorMessage('');
+    if (isManual) {
+      showToast('Verificando atualizações no GitHub... 🔍', 'info');
+    }
+
+    try {
+      const res = await electronBridge.checkForUpdates();
+      if (res && res.currentVersion) {
+        setCurrentVersion(res.currentVersion);
+      }
+
+      if (res && res.updateAvailable) {
+        console.log(`[UpdateContext] Nova versão obrigatória encontrada: v${res.latestVersion}`);
+        setUpdateInfo(res);
+        setStatus('available');
+        setIsModalOpen(true);
+        showToast(`🚀 Atualização obrigatória disponível: v${res.latestVersion}!`, 'info');
+        // Em modo obrigatório, dispara o download imediatamente
+        startDownload(res);
+      } else {
+        setStatus('upToDate');
+        if (isManual) {
+          showToast('Você já está usando a versão mais recente! ✨', 'success');
+        }
+      }
+    } catch (err) {
+      console.warn('[UpdateContext] Erro ao verificar atualizações:', err);
+      setStatus('error');
+      setErrorMessage(err.message || 'Erro ao conectar com o GitHub.');
+      if (isManual) {
+        showToast('Não foi possível verificar atualizações no momento.', 'error');
+      }
+    }
+  }, [showToast, startDownload]);
 
   // Ouvir eventos do Main Process
   useEffect(() => {
@@ -36,7 +107,9 @@ export function UpdateProvider({ children }) {
       if (info && info.updateAvailable) {
         setUpdateInfo(info);
         setStatus('available');
-        showToast(`✨ Nova versão do LoveChat disponível (v${info.latestVersion})!`, 'info');
+        setIsModalOpen(true);
+        showToast(`✨ Atualização obrigatória disponível (v${info.latestVersion})!`, 'info');
+        startDownload(info);
       }
     });
 
@@ -53,73 +126,27 @@ export function UpdateProvider({ children }) {
     electronBridge.onUpdateDownloaded((data) => {
       setStatus('downloaded');
       setDownloadProgress((prev) => ({ ...prev, percent: 100 }));
-      showToast('Download concluído! Pronto para reiniciar e atualizar.', 'success');
+      showToast('Download 100% concluído! Pronto para reiniciar e atualizar.', 'success');
     });
-  }, [showToast]);
+  }, [showToast, startDownload]);
 
-  // Verificar atualizações manualmente ou em segundo plano
-  const checkUpdates = useCallback(async (isManual = false) => {
-    setStatus('checking');
-    setErrorMessage('');
-    if (isManual) {
-      showToast('Verificando atualizações no GitHub... 🔍', 'info');
-    }
+  // Checagem imediata ao iniciar o app e periódica a cada 5 minutos
+  useEffect(() => {
+    if (!isElectron) return;
 
-    try {
-      const res = await electronBridge.checkForUpdates();
-      if (res && res.currentVersion) {
-        setCurrentVersion(res.currentVersion);
-      }
+    const timer = setTimeout(() => {
+      checkUpdates(false);
+    }, 1500);
 
-      if (res && res.updateAvailable) {
-        setUpdateInfo(res);
-        setStatus('available');
-        setIsModalOpen(true);
-        if (isManual) {
-          showToast(`Nova versão encontrada: v${res.latestVersion} 🚀`, 'success');
-        }
-      } else {
-        setStatus('upToDate');
-        if (isManual) {
-          showToast('Você já está usando a versão mais recente! ✨', 'success');
-        }
-      }
-    } catch (err) {
-      console.warn('[UpdateContext] Erro ao verificar atualizações:', err);
-      setStatus('error');
-      setErrorMessage(err.message || 'Erro ao conectar com o GitHub.');
-      if (isManual) {
-        showToast('Não foi possível verificar atualizações no momento.', 'error');
-      }
-    }
-  }, [showToast]);
+    const interval = setInterval(() => {
+      checkUpdates(false);
+    }, 5 * 60 * 1000);
 
-  // Iniciar download da atualização
-  const startDownload = useCallback(async () => {
-    if (!updateInfo || !updateInfo.downloadUrl) return;
-    setStatus('downloading');
-    setDownloadProgress({
-      percent: 0,
-      speedFormatted: '0 MB/s',
-      downloadedFormatted: '0 MB',
-      totalFormatted: updateInfo.assetSize ? `${(updateInfo.assetSize / (1024 * 1024)).toFixed(1)} MB` : '0 MB'
-    });
-
-    try {
-      const res = await electronBridge.downloadUpdate(updateInfo.downloadUrl);
-      if (res && res.success) {
-        setStatus('downloaded');
-      } else if (res && res.error) {
-        setStatus('error');
-        setErrorMessage(res.error);
-        showToast('Falha no download da atualização.', 'error');
-      }
-    } catch (err) {
-      setStatus('error');
-      setErrorMessage(err.message);
-      showToast('Falha no download da atualização.', 'error');
-    }
-  }, [updateInfo, showToast]);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [checkUpdates]);
 
   // Instalar e reiniciar o aplicativo
   const installAndRestart = useCallback(async () => {
@@ -142,8 +169,13 @@ export function UpdateProvider({ children }) {
   }, []);
 
   const closeUpdateModal = useCallback(() => {
+    // Atualização é estritamente obrigatória quando há nova versão
+    if (status === 'available' || status === 'downloading' || status === 'downloaded') {
+      showToast('Esta atualização é obrigatória para continuar usando o LoveChat.', 'warning');
+      return;
+    }
     setIsModalOpen(false);
-  }, []);
+  }, [status, showToast]);
 
   return (
     <UpdateContext.Provider
@@ -160,7 +192,8 @@ export function UpdateProvider({ children }) {
         openReleasesPage,
         openUpdateModal,
         closeUpdateModal,
-        hasUpdate: status === 'available' || status === 'downloading' || status === 'downloaded'
+        hasUpdate: status === 'available' || status === 'downloading' || status === 'downloaded',
+        isMandatory: true
       }}
     >
       {children}
