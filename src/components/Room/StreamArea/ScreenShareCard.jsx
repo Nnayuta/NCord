@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Play, Loader2 } from 'lucide-react';
+import { Play, Loader2, RotateCw } from 'lucide-react';
 import { useWebRTC } from '../../../context/WebRTCContext';
 import { StreamControlsOverlay } from './StreamControlsOverlay';
 
@@ -17,7 +17,8 @@ export function ScreenShareCard({
     screenFitMode,
     screenVolume,
     isScreenMuted,
-    isDeafened
+    isDeafened,
+    requestScreenShare
   } = useWebRTC();
 
   const videoRef = useRef(null);
@@ -25,6 +26,7 @@ export function ScreenShareCard({
   const [videoPlayBlocked, setVideoPlayBlocked] = useState(false);
   const [audioPlayBlocked, setAudioPlayBlocked] = useState(false);
   const [detectedResolution, setDetectedResolution] = useState('');
+  const [showRetry, setShowRetry] = useState(false);
 
   const updateDetectedDimensions = useCallback(() => {
     const vEl = videoRef.current;
@@ -118,8 +120,10 @@ export function ScreenShareCard({
       promise
         .then(() => setVideoPlayBlocked(false))
         .catch((err) => {
-          console.warn('[ScreenShareCard] Autoplay de vídeo bloqueado pelo navegador:', err?.message || err);
-          setVideoPlayBlocked(true);
+          if (err && err.name !== 'AbortError') {
+            console.warn('[ScreenShareCard] Autoplay de vídeo bloqueado pelo navegador:', err?.message || err);
+            setVideoPlayBlocked(true);
+          }
         });
     }
   };
@@ -281,6 +285,15 @@ export function ScreenShareCard({
     }
   }, [screenVolume, audioMuted, isLocal]);
 
+  useEffect(() => {
+    if (!stream && !isLocal) {
+      const timer = setTimeout(() => setShowRetry(true), 4000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowRetry(false);
+    }
+  }, [stream, isLocal]);
+
   if (!stream) {
     return (
       <div id={cardId} className="video-card screen-card connecting-screen" style={{ minHeight: '260px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -289,6 +302,33 @@ export function ScreenShareCard({
           <span style={{ fontSize: '0.875rem', fontWeight: 500, letterSpacing: '0.3px' }}>
             Conectando à transmissão de {ownerLabel}...
           </span>
+          {showRetry && !isLocal && (
+            <button
+              type="button"
+              className="btn-retry-stream"
+              onClick={() => {
+                setShowRetry(false);
+                if (requestScreenShare) requestScreenShare();
+              }}
+              style={{
+                marginTop: '4px',
+                background: 'rgba(168, 85, 247, 0.25)',
+                border: '1px solid rgba(168, 85, 247, 0.45)',
+                color: '#fff',
+                borderRadius: '8px',
+                padding: '7px 14px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '7px',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <RotateCw size={13} />
+              <span>Demorando? Solicitar retransmissão</span>
+            </button>
+          )}
         </div>
       </div>
     );
@@ -305,6 +345,8 @@ export function ScreenShareCard({
           tryPlayVideo();
           updateDetectedDimensions();
         }}
+        onCanPlay={tryPlayVideo}
+        onPlaying={() => setVideoPlayBlocked(false)}
         onResize={updateDetectedDimensions}
         className={screenFitMode}
       />

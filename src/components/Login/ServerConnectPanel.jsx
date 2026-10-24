@@ -44,6 +44,12 @@ export function ServerConnectPanel() {
   const [isWebStarting, setIsWebStarting] = useState(false);
   const [isFirewallLoading, setIsFirewallLoading] = useState(false);
 
+  React.useEffect(() => {
+    if (remoteIp && !inputIp) {
+      setInputIp(remoteIp);
+    }
+  }, [remoteIp]);
+
   const handleRemoteConnect = (e) => {
     e.preventDefault();
     if (inputIp.trim()) {

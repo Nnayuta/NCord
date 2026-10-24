@@ -127,12 +127,53 @@ function isValidToken(token) {
   return Boolean(token && typeof token === 'string' && token.trim() === currentRoomToken);
 }
 
+function isPrivateIp(ip) {
+  if (!ip || typeof ip !== 'string') return false;
+  const clean = ip.replace(/^::ffff:/, '').trim();
+  if (clean === '127.0.0.1' || clean === '::1' || clean === 'localhost') return true;
+
+  // 10.0.0.0 - 10.255.255.255 (ZeroTier / VPN / Classe A privada)
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(clean)) return true;
+  // 172.16.0.0 - 172.31.255.255 (Classe B privada)
+  if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(clean)) return true;
+  // 192.168.0.0 - 192.168.255.255 (Classe C privada / LAN / ZeroTier)
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(clean)) return true;
+  // 100.64.0.0 - 100.127.255.255 (Tailscale / Carrier-Grade NAT)
+  if (/^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/.test(clean)) return true;
+  // 169.254.0.0 - 169.254.255.255 (Link-local)
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(clean)) return true;
+  // 28.0.0.0 - 28.255.255.255 (ZeroTier default managed range)
+  if (/^28\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(clean)) return true;
+
+  // IPv6 Link-Local / Unique Local
+  if (clean.startsWith('fe80:') || clean.startsWith('fc') || clean.startsWith('fd')) return true;
+
+  return false;
+}
+
+function isWebTunnelRequest(req) {
+  if (!req || !req.headers) return false;
+  // Cabeçalhos explícitos de proxy reverso / Cloudflare Tunnel
+  if (req.headers['cf-ray'] || req.headers['cf-connecting-ip']) return true;
+  const host = (req.headers['host'] || '').toLowerCase();
+  if (host.includes('trycloudflare.com')) return true;
+
+  const fwd = req.headers['x-forwarded-for'] || req.headers['x-real-ip'];
+  if (fwd) {
+    const firstIp = fwd.split(',')[0].trim();
+    if (!isPrivateIp(firstIp)) return true;
+  }
+  return false;
+}
+
 /**
  * Determina estritamente se a requisição originou-se do processo local do Electron / Localhost.
  * Se contiver cabeçalhos de encaminhamento de proxy (Cloudflare Tunnel, etc.), NUNCA é local.
  */
 function isLocalRequest(req) {
   if (
+    !req ||
+    !req.headers ||
     req.headers['cf-ray'] ||
     req.headers['cf-connecting-ip'] ||
     req.headers['x-forwarded-for'] ||
@@ -143,19 +184,45 @@ function isLocalRequest(req) {
 
   const rawAddr = req.socket && req.socket.remoteAddress;
   if (!rawAddr) return false;
+  const clean = rawAddr.replace(/^::ffff:/, '').trim();
+  return clean === '127.0.0.1' || clean === '::1';
+}
 
-  return (
-    rawAddr === '127.0.0.1' ||
-    rawAddr === '::1' ||
-    rawAddr === '::ffff:127.0.0.1'
-  );
+/**
+ * Determina se a requisição originou-se de uma conexão direta confiável
+ * (Localhost, Rede ZeroTier, Tailscale, Rede Local LAN ou App Desktop).
+ */
+function isTrustedLocalOrPrivateRequest(req) {
+  // Se contiver cabeçalhos de encaminhamento de proxy (Cloudflare, etc.)
+  if (req.headers && (req.headers['cf-ray'] || req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || req.headers['x-real-ip'])) {
+    if (req.headers['x-lovechat-client'] === 'desktop' && !isWebTunnelRequest(req)) {
+      return true;
+    }
+    return false;
+  }
+
+  if (isWebTunnelRequest(req)) {
+    return false;
+  }
+
+  // Se o cliente desktop se identificou com o cabeçalho seguro do aplicativo
+  if (req.headers && (req.headers['x-lovechat-client'] === 'desktop' || req.headers['x-ncord-client'] === 'desktop')) {
+    return true;
+  }
+
+  // Se o socket do cliente vem de endereço IP privado (ZeroTier, LAN, Localhost)
+  const rawAddr = req.socket && req.socket.remoteAddress;
+  if (isPrivateIp(rawAddr)) {
+    return true;
+  }
+
+  return false;
 }
 
 function tokenAuthMiddleware(req, res, next) {
   const p = req.path.toLowerCase();
 
   // Rotas isentas de autenticação por token
-  // Nota: /api/my-ip NÃO é isento; clientes remotos precisam do token para consultar IPs do host.
   if (
     !p.startsWith('/api/') ||
     p === '/api/auth/verify' ||
@@ -165,12 +232,12 @@ function tokenAuthMiddleware(req, res, next) {
     return next();
   }
 
-  // Requisições locais diretas (Electron no Host) são liberadas
-  if (isLocalRequest(req)) {
+  // Requisições diretas de rede privada (ZeroTier, LAN, Localhost) ou App Desktop são liberadas
+  if (isTrustedLocalOrPrivateRequest(req)) {
     return next();
   }
 
-  // Se o anfitrião desativou o acesso web, bloqueia requisições remotas
+  // Se o anfitrião desativou o acesso web via túnel, bloqueia
   if (!isWebAccessEnabled) {
     return res.status(403).json({
       error: 'web_access_disabled',
@@ -178,7 +245,7 @@ function tokenAuthMiddleware(req, res, next) {
     });
   }
 
-  // Requisições remotas (via túnel ou IP externo) precisam do token válido
+  // Requisições remotas via túnel web precisam do token válido
   const token =
     req.query.token ||
     req.headers['x-room-token'] ||
@@ -199,8 +266,9 @@ app.use(tokenAuthMiddleware);
 // Endpoints de autenticação de token
 app.get('/api/auth/token', (req, res) => {
   const token = req.query.token || req.headers['x-room-token'];
-  // Apenas requisições comprovadamente locais ou já autenticadas com o token válido podem consultar o token ativo
-  if (!isLocalRequest(req) && !isValidToken(token)) {
+  // Liberado para processo local do host, app desktop com header oficial ou cliente com token válido
+  const isDesktop = req.headers && (req.headers['x-lovechat-client'] === 'desktop' || req.headers['x-ncord-client'] === 'desktop');
+  if (!isLocalRequest(req) && !isDesktop && !isValidToken(token)) {
     return res.status(401).json({ error: 'unauthorized', message: 'Apenas clientes autorizados podem consultar o token.' });
   }
   res.json({ success: true, token: getOrCreateRoomToken() });
@@ -450,18 +518,27 @@ function getHostNetworkIps() {
   const allIps = [];
 
   for (const [name, list] of Object.entries(ifaces)) {
+    if (!list) continue;
     for (const iface of list) {
       if (iface.family === 'IPv4' && !iface.internal) {
         const lowerName = name.toLowerCase();
         allIps.push({ name, address: iface.address });
-        if (
-          lowerName.includes('zerotier') || 
-          lowerName.includes('zt') || 
+
+        const isZtName = lowerName.includes('zerotier') || lowerName.includes('zt');
+        const isZtSubnet = (
+          iface.address.startsWith('10.144.') ||
           iface.address.startsWith('10.147.') || 
           iface.address.startsWith('10.244.') ||
+          iface.address.startsWith('10.247.') ||
+          iface.address.startsWith('192.168.191.') ||
           iface.address.startsWith('192.168.192.') ||
-          iface.address.startsWith('192.168.195.')
-        ) {
+          iface.address.startsWith('192.168.195.') ||
+          iface.address.startsWith('172.22.') ||
+          iface.address.startsWith('172.28.') ||
+          iface.address.startsWith('172.29.')
+        );
+
+        if (isZtName || isZtSubnet) {
           zerotierIp = iface.address;
         } else if (!lanIp && !iface.address.startsWith('127.')) {
           lanIp = iface.address;
@@ -470,7 +547,18 @@ function getHostNetworkIps() {
     }
   }
 
+  // Fallback: se houver 2 interfaces IPv4 válidas e nenhuma marcada como ZeroTier,
+  // selecionar a segunda como ZeroTier / VPN
+  if (!zerotierIp && allIps.length > 1) {
+    const nonLocal = allIps.filter(item => item.address && !item.address.startsWith('127.'));
+    if (nonLocal.length > 1) {
+      zerotierIp = nonLocal[1].address;
+      lanIp = nonLocal[0].address;
+    }
+  }
+
   return {
+    ip: zerotierIp || lanIp || '127.0.0.1',
     zerotierIp: zerotierIp || lanIp || '127.0.0.1',
     lanIp: lanIp || '127.0.0.1',
     allIps
@@ -479,11 +567,13 @@ function getHostNetworkIps() {
 
 app.get('/api/my-ip', (req, res) => {
   const { zerotierIp, lanIp, allIps } = getHostNetworkIps();
+  const db = readDB();
   res.json({
-    ip: zerotierIp,
+    ip: zerotierIp || lanIp || '127.0.0.1',
     zerotierIp,
     lanIp,
-    allIps
+    allIps,
+    hostName: db.hostName || db.profiles?.user1?.name || 'Amor'
   });
 });
 
@@ -541,6 +631,22 @@ function setupUdpDiscovery() {
         }));
 
         socket.send(payload, 0, payload.length, 3001, '255.255.255.255');
+
+        // Broadcast específico nas sub-redes do ZeroTier e da LAN
+        const netInfo = getHostNetworkIps();
+        if (netInfo.allIps && Array.isArray(netInfo.allIps)) {
+          for (const item of netInfo.allIps) {
+            if (item && item.address && !item.address.startsWith('127.')) {
+              const parts = item.address.split('.');
+              if (parts.length === 4) {
+                const subnetBroadcast = `${parts[0]}.${parts[1]}.${parts[2]}.255`;
+                try {
+                  socket.send(payload, 0, payload.length, 3001, subnetBroadcast);
+                } catch (e) {}
+              }
+            }
+          }
+        }
       } catch (e) {}
     }, 3000);
     if (udpTimer.unref) udpTimer.unref();
@@ -998,22 +1104,29 @@ let currentHttpServer = null;
 function verifyWebSocketClient(info, cb) {
   try {
     const req = info.req;
-    // Requisições diretas locais do Host no Electron são permitidas
-    if (isLocalRequest(req)) {
+    // Requisições diretas locais ou via rede privada (ZeroTier / LAN / App Desktop) são permitidas
+    if (isTrustedLocalOrPrivateRequest(req)) {
       return cb(true);
     }
 
-    // Se o anfitrião desativou a conexão web, bloqueia clientes remotos
-    if (!isWebAccessEnabled) {
-      console.warn(`[PeerServer WS] Conexão WebSocket rejeitada: conexão web desativada pelo anfitrião (IP: ${req.socket?.remoteAddress})`);
-      return cb(false, 403, 'Web Access Disabled');
-    }
-
-    // Requisições remotas exigem token de sala válido na URL query string
     const url = new URL(req.url, 'http://localhost');
     const token = url.searchParams.get('token');
-    if (isValidToken(token)) {
+    const hasValidToken = isValidToken(token);
+
+    // Se possui token válido de sala:
+    if (hasValidToken) {
+      // Bloqueia apenas se for originada pelo túnel público da Cloudflare e o acesso web estiver desativado
+      if (isWebTunnelRequest(req) && !isWebAccessEnabled) {
+        console.warn(`[PeerServer WS] Conexão WebSocket rejeitada: conexão web desativada pelo anfitrião (IP: ${req.socket?.remoteAddress})`);
+        return cb(false, 403, 'Web Access Disabled');
+      }
       return cb(true);
+    }
+
+    // Se é uma conexão pelo túnel web público mas o acesso web foi desativado pelo anfitrião
+    if (isWebTunnelRequest(req) && !isWebAccessEnabled) {
+      console.warn(`[PeerServer WS] Conexão WebSocket rejeitada: conexão web desativada pelo anfitrião (IP: ${req.socket?.remoteAddress})`);
+      return cb(false, 403, 'Web Access Disabled');
     }
 
     console.warn(`[PeerServer WS] Conexão WebSocket rejeitada: token ausente ou inválido (IP: ${req.socket?.remoteAddress})`);
@@ -1070,7 +1183,7 @@ async function startServer() {
   });
 
   app.use('/peerjs', (req, res, next) => {
-    if (!isLocalRequest(req)) {
+    if (!isTrustedLocalOrPrivateRequest(req)) {
       const token = req.query.token || req.headers['x-room-token'];
       if (!isValidToken(token)) {
         console.warn(`[PeerServer HTTP] Requisição remota rejeitada por falta de token válido (IP: ${req.ip})`);

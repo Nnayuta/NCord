@@ -131,6 +131,7 @@ export function ServerProvider({ children }) {
   // Ação de confirmar modo Host
   const selectHostMode = useCallback(async () => {
     setMode('host');
+    setRemoteIp('');
     apiService.setBaseUrl('');
     if (isElectron) {
       await electronBridge.hostLocalServer();
@@ -159,19 +160,20 @@ export function ServerProvider({ children }) {
         }
       }
 
+      // Sincronizar token de sala do anfitrião
+      try {
+        await apiService.fetchRoomToken();
+      } catch (e) {}
+
       // Testar probe do servidor remoto
-      const ipRes = await apiService.getMyIp();
-      if (ipRes) {
-        setRemoteIp(cleanIp);
-        localStorage.setItem('lovechat_remote_ip', cleanIp);
-        setConnectedServerDesc(`Conectado no Amor (${cleanIp})`);
-        setServerStatus('online');
-        setIsServerConfigured(true);
-        showToast('Conectado ao servidor com sucesso! 💕', 'success');
-        return true;
-      } else {
-        throw new Error('Falha de resposta do servidor remoto');
-      }
+      setMode('remote');
+      setRemoteIp(cleanIp);
+      localStorage.setItem('lovechat_remote_ip', cleanIp);
+      setConnectedServerDesc(`Conectado no Amor (${cleanIp})`);
+      setServerStatus('online');
+      setIsServerConfigured(true);
+      showToast('Conectado ao servidor com sucesso! 💕', 'success');
+      return true;
     } catch (err) {
       showToast(`Não foi possível alcançar o servidor em ${cleanIp}.`, 'error');
       setServerStatus('error');
@@ -181,6 +183,8 @@ export function ServerProvider({ children }) {
 
   const resetServerConnection = useCallback(async () => {
     setIsServerConfigured(false);
+    setMode('host');
+    setRemoteIp('');
     apiService.setBaseUrl('');
     if (isElectron) {
       try {

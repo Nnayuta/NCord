@@ -91,6 +91,9 @@ export class ApiService {
 
   getHeaders(customHeaders = {}) {
     const headers = { ...customHeaders };
+    if (typeof window !== 'undefined' && (window.electronAPI || window.location.protocol === 'file:' || window.location.port === '5173')) {
+      headers['x-lovechat-client'] = 'desktop';
+    }
     const token = this.getRoomToken();
     if (token) {
       headers['x-room-token'] = token;

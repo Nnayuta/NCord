@@ -131,3 +131,34 @@ test('6. Quando a Conexão Web está desativada, requisições remotas são bloq
     setWebAccessEnabled(true);
   }
 });
+
+test('7. App Desktop (x-lovechat-client: desktop) conecta e obtém token mesmo se acesso web público estiver desativado', async () => {
+  setWebAccessEnabled(false);
+  try {
+    const resToken = await fetch(`${baseUrl}/api/auth/token`, {
+      headers: {
+        'x-lovechat-client': 'desktop'
+      }
+    });
+    assert.strictEqual(resToken.status, 200, 'App desktop deve obter o token com sucesso');
+    const tokenData = await resToken.json();
+    assert.ok(tokenData.token, 'Deve conter o token da sala');
+
+    const resDb = await fetch(`${baseUrl}/api/db`, {
+      headers: {
+        'x-lovechat-client': 'desktop'
+      }
+    });
+    assert.strictEqual(resDb.status, 200, 'App desktop deve acessar API sem bloqueio de web_access_disabled');
+  } finally {
+    setWebAccessEnabled(true);
+  }
+});
+
+test('8. /api/my-ip responde com sucesso para clientes na rede privada / ZeroTier / Localhost', async () => {
+  const res = await fetch(`${baseUrl}/api/my-ip`);
+  assert.strictEqual(res.status, 200);
+  const data = await res.json();
+  assert.ok(data.ip, 'Deve retornar IP');
+  assert.ok(data.hostName, 'Deve retornar hostName para descoberta');
+});

@@ -98,39 +98,18 @@ export const ICE_CONFIG = {
 };
 
 /**
- * Otimização de candidatos ICE / mDNS:
- * Evita o erro interno do Chromium [services\network\p2p\socket_manager.cc:145] errorcode: -105.
- * Dispositivos remotos (como celulares e navegadores) geram hostnames mDNS ofuscados (<uuid>.local)
- * que não são resolvíveis fora da mesma rede física ou por VPN/túnel, poluindo o terminal
- * com erros desnecessários de DNS antes de conectar pelos IPs e STUN/TURN válidos.
+ * Tratamento resiliente de candidatos ICE WebRTC:
+ * Garante que falhas de candidatos individuais não interrompam a negociação e permite que
+ * candidatos de host (incluindo mDNS .local de navegadores e IPs de rede local/ZeroTier) conectem normalmente.
  */
 if (typeof window !== 'undefined' && window.RTCPeerConnection) {
   const origAddIceCandidate = window.RTCPeerConnection.prototype.addIceCandidate;
   window.RTCPeerConnection.prototype.addIceCandidate = function (candidate, ...args) {
-    if (candidate) {
-      const candStr = typeof candidate === 'string' ? candidate : candidate.candidate;
-      if (typeof candStr === 'string' && candStr.includes('.local')) {
-        return Promise.resolve();
-      }
-    }
-    return origAddIceCandidate.apply(this, [candidate, ...args]);
-  };
-
-  const origSetRemoteDescription = window.RTCPeerConnection.prototype.setRemoteDescription;
-  window.RTCPeerConnection.prototype.setRemoteDescription = function (description, ...args) {
-    if (description && typeof description.sdp === 'string' && description.sdp.includes('.local')) {
-      const cleanedSdp = description.sdp
-        .split('\r\n')
-        .filter((line) => !(line.startsWith('a=candidate:') && line.includes('.local')))
-        .join('\r\n');
-      
-      const newDesc = typeof RTCSessionDescription !== 'undefined'
-        ? new RTCSessionDescription({ type: description.type, sdp: cleanedSdp })
-        : { type: description.type, sdp: cleanedSdp };
-        
-      return origSetRemoteDescription.apply(this, [newDesc, ...args]);
-    }
-    return origSetRemoteDescription.apply(this, [description, ...args]);
+    if (!candidate) return origAddIceCandidate.apply(this, [candidate, ...args]);
+    return origAddIceCandidate.apply(this, [candidate, ...args]).catch((err) => {
+      console.debug('[WebRTC ICE] Candidato ignorado/não resolvível:', err?.message || err);
+      return Promise.resolve();
+    });
   };
 }
 

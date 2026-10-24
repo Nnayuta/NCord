@@ -489,8 +489,8 @@ async function requestFirewallPermissions(force = false) {
       } else {
         console.log('[Firewall] Solicitação de liberação do Firewall enviada com sucesso.');
         setTimeout(async () => {
-          const applied = await checkFirewallRule('NCord Port 3000');
-          resolve({ success: applied });
+          const applied = (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
+          resolve({ success: Boolean(applied) });
         }, 1500);
       }
     });
@@ -508,8 +508,14 @@ function probeHttpServer(host, port = SERVER_PORT, timeoutMs = 4000) {
   return new Promise((resolve) => {
     const req = http.get(
       `http://${host}:${port}/api/my-ip`,
-      { timeout: timeoutMs },
+      {
+        timeout: timeoutMs,
+        headers: {
+          'x-lovechat-client': 'desktop'
+        }
+      },
       (res) => {
+        res.resume();
         resolve(res.statusCode >= 200 && res.statusCode < 400);
       }
     );
@@ -548,19 +554,37 @@ function getHostNetworkIps() {
       if (iface.family === 'IPv4' && !iface.internal) {
         const lowerName = name.toLowerCase();
         allIps.push({ name, address: iface.address });
-        if (
-          lowerName.includes('zerotier') || 
-          lowerName.includes('zt') || 
+
+        const isZtName = lowerName.includes('zerotier') || lowerName.includes('zt');
+        const isZtSubnet = (
+          iface.address.startsWith('10.144.') ||
           iface.address.startsWith('10.147.') || 
           iface.address.startsWith('10.244.') ||
+          iface.address.startsWith('10.247.') ||
+          iface.address.startsWith('192.168.191.') ||
           iface.address.startsWith('192.168.192.') ||
-          iface.address.startsWith('192.168.195.')
-        ) {
+          iface.address.startsWith('192.168.195.') ||
+          iface.address.startsWith('172.22.') ||
+          iface.address.startsWith('172.28.') ||
+          iface.address.startsWith('172.29.')
+        );
+
+        if (isZtName || isZtSubnet) {
           zerotierIp = iface.address;
         } else if (!lanIp && !iface.address.startsWith('127.')) {
           lanIp = iface.address;
         }
       }
+    }
+  }
+
+  // Fallback: se houver 2 interfaces IPv4 válidas e nenhuma marcada como ZeroTier,
+  // selecionar a segunda como ZeroTier / VPN
+  if (!zerotierIp && allIps.length > 1) {
+    const nonLocal = allIps.filter(item => item.address && !item.address.startsWith('127.'));
+    if (nonLocal.length > 1) {
+      zerotierIp = nonLocal[1].address;
+      lanIp = nonLocal[0].address;
     }
   }
 
@@ -1093,7 +1117,47 @@ ipcMain.handle('discover-servers', async () => {
     }
   }
 
-  // Varrer sub-redes ativas (ZeroTier e LAN)
+  const probePromises = [];
+
+  // 1. Probar com prioridade o IP do parceiro salvo anteriormente nas configurações
+  const savedSettings = readSettings();
+  if (savedSettings && savedSettings.targetIp && !seenIps.has(savedSettings.targetIp)) {
+    const tip = savedSettings.targetIp;
+    if (tip !== zerotierIp && tip !== lanIp) {
+      probePromises.push(
+        new Promise((resolve) => {
+          const reqProbe = http.get(
+            `http://${tip}:${SERVER_PORT}/api/my-ip`,
+            { timeout: 1500, headers: { 'x-lovechat-client': 'desktop' } },
+            (resProbe) => {
+              if (resProbe.statusCode >= 200 && resProbe.statusCode < 400) {
+                let body = '';
+                resProbe.on('data', (d) => (body += d));
+                resProbe.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(body);
+                    resolve({ ip: tip, port: SERVER_PORT, hostName: parsed.hostName || 'Amor', ...(parsed || {}) });
+                  } catch (e) {
+                    resolve({ ip: tip, port: SERVER_PORT, hostName: 'Amor' });
+                  }
+                });
+              } else {
+                resProbe.resume();
+                resolve(null);
+              }
+            }
+          );
+          reqProbe.on('error', () => resolve(null));
+          reqProbe.on('timeout', () => {
+            reqProbe.destroy();
+            resolve(null);
+          });
+        })
+      );
+    }
+  }
+
+  // 2. Varrer sub-redes ativas (ZeroTier e LAN)
   const candidateSubnets = new Set();
   if (allIps && Array.isArray(allIps)) {
     for (const item of allIps) {
@@ -1106,7 +1170,6 @@ ipcMain.handle('discover-servers', async () => {
     }
   }
 
-  const probePromises = [];
   for (const baseSubnet of candidateSubnets) {
     for (let i = 1; i <= 254; i++) {
       const targetIp = `${baseSubnet}.${i}`;
@@ -1114,27 +1177,32 @@ ipcMain.handle('discover-servers', async () => {
 
       probePromises.push(
         new Promise((resolve) => {
-          const reqProbe = http.get(`http://${targetIp}:${SERVER_PORT}/api/my-ip`, { timeout: 400 }, (resProbe) => {
-            if (resProbe.statusCode >= 200 && resProbe.statusCode < 400) {
-              let body = '';
-              resProbe.on('data', (d) => (body += d));
-              resProbe.on('end', () => {
-                try {
-                  const parsed = JSON.parse(body);
-                  resolve({
-                    ip: targetIp,
-                    port: SERVER_PORT,
-                    hostName: parsed.hostName || 'Amor',
-                    ...(parsed || {})
-                  });
-                } catch (e) {
-                  resolve({ ip: targetIp, port: SERVER_PORT, hostName: 'Amor' });
-                }
-              });
-            } else {
-              resolve(null);
+          const reqProbe = http.get(
+            `http://${targetIp}:${SERVER_PORT}/api/my-ip`,
+            { timeout: 1200, headers: { 'x-lovechat-client': 'desktop' } },
+            (resProbe) => {
+              if (resProbe.statusCode >= 200 && resProbe.statusCode < 400) {
+                let body = '';
+                resProbe.on('data', (d) => (body += d));
+                resProbe.on('end', () => {
+                  try {
+                    const parsed = JSON.parse(body);
+                    resolve({
+                      ip: targetIp,
+                      port: SERVER_PORT,
+                      hostName: parsed.hostName || 'Amor',
+                      ...(parsed || {})
+                    });
+                  } catch (e) {
+                    resolve({ ip: targetIp, port: SERVER_PORT, hostName: 'Amor' });
+                  }
+                });
+              } else {
+                resProbe.resume();
+                resolve(null);
+              }
             }
-          });
+          );
           reqProbe.on('error', () => resolve(null));
           reqProbe.on('timeout', () => {
             reqProbe.destroy();
@@ -1194,7 +1262,8 @@ ipcMain.handle('request-firewall', async () => {
 });
 
 ipcMain.handle('check-firewall', async () => {
-  return (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
+  const ok = (await checkFirewallRule('LoveChat Port 3000')) || (await checkFirewallRule('NCord Port 3000'));
+  return { applied: Boolean(ok) };
 });
 
 // ==========================================
