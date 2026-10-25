@@ -895,7 +895,10 @@ ipcMain.handle('select-desktop-source', async (event, { sourceId, withAudio, sou
       stopActiveProcessAudio();
 
       const isWindowChoice = chosen.id.startsWith('window:');
-      const streamOptions = { video: chosen };
+      const streamOptions = {
+        video: chosen,
+        audio: withAudio ? 'loopback' : false
+      };
       let hasProcessAudio = false;
       let exclusionApplied = false;
 

@@ -186,12 +186,15 @@ export async function applySenderParameters(sender, preset = QUALITY_PRESETS.ult
 /**
  * Transforma o SDP WebRTC para áudio estéreo broadcast e vídeo de alta fidelidade com bitrate adaptativo
  */
-export function transformSDP(sdp, isScreen = false, preset = QUALITY_PRESETS.ultra) {
+export function transformSDP(sdp, isScreen = false, preset = null) {
   if (!sdp) return sdp;
   try {
+    const activePreset = preset || QUALITY_PRESETS.ultra;
     const lines = sdp.split('\r\n');
     const newLines = [];
-    const bitrateKbps = isScreen ? (preset.sdpScreenKbps || 9000) : (preset.sdpMediaKbps || 3000);
+    const bitrateKbps = isScreen
+      ? (activePreset?.sdpScreenKbps || 9000)
+      : (activePreset?.sdpMediaKbps || 3000);
 
     // Identificar dinamicamente os payload types de Opus (áudio)
     const opusPayloadTypes = new Set();

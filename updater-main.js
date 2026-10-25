@@ -39,12 +39,30 @@ function formatBytes(bytes) {
 }
 
 /**
+ * Extrai versão, tag e downloadUrl a partir do header Location de redirecionamento do GitHub Releases
+ */
+function parseReleaseRedirect(locationUrl) {
+  if (!locationUrl || typeof locationUrl !== 'string') return null;
+  const match = locationUrl.match(/\/tag\/v?([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i);
+  if (!match) return null;
+  const latestVersion = match[1];
+  const rawTag = locationUrl.split('/tag/')[1] || `v${latestVersion}`;
+  return {
+    latestVersion,
+    rawTag,
+    htmlUrl: locationUrl,
+    downloadUrl: `https://github.com/${GITHUB_REPO}/releases/download/${rawTag}/LoveChat.exe`
+  };
+}
+
+/**
  * Verifica atualizações no GitHub Releases com sistema híbrido à prova de falhas:
  * 1. HEAD request na URL web de releases (sem limite de requisições / 403 da API)
  * 2. API oficial do GitHub para changelog detalhado e assets diretos (se disponível)
  */
-async function checkForUpdates() {
-  const currentVersion = app.getVersion();
+async function checkForUpdates(options = {}) {
+  const fetchFn = options.fetchFn || fetch;
+  const currentVersion = options.currentVersion || (app?.getVersion ? app.getVersion() : '1.2.1');
   console.log(`[AutoUpdater] Verificando atualizações no GitHub (${GITHUB_REPO}). Versão atual: v${currentVersion}`);
 
   let latestVersion = null;
@@ -58,17 +76,17 @@ async function checkForUpdates() {
 
   // 1. Método ultra-rápido sem limite de taxa (HEAD request na URL pública)
   try {
-    const headRes = await fetch(`https://github.com/${GITHUB_REPO}/releases/latest`, {
+    const headRes = await fetchFn(`https://github.com/${GITHUB_REPO}/releases/latest`, {
       method: 'HEAD',
       redirect: 'manual'
     });
-    const loc = headRes.headers.get('location') || '';
-    const match = loc.match(/\/tag\/v?([0-9]+\.[0-9]+(?:\.[0-9]+)?)/i);
-    if (match) {
-      latestVersion = match[1];
-      rawTag = loc.split('/tag/')[1] || `v${latestVersion}`;
-      htmlUrl = loc;
-      downloadUrl = `https://github.com/${GITHUB_REPO}/releases/download/${rawTag}/LoveChat.exe`;
+    const loc = headRes?.headers?.get ? headRes.headers.get('location') || '' : '';
+    const parsed = parseReleaseRedirect(loc);
+    if (parsed) {
+      latestVersion = parsed.latestVersion;
+      rawTag = parsed.rawTag;
+      htmlUrl = parsed.htmlUrl;
+      downloadUrl = parsed.downloadUrl;
     }
   } catch (headErr) {
     console.warn('[AutoUpdater] Aviso ao consultar redirecionamento web:', headErr.message);
@@ -76,7 +94,7 @@ async function checkForUpdates() {
 
   // 2. Consulta API oficial do GitHub para metadados ricos (changelog, tamanho)
   try {
-    const apiRes = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+    const apiRes = await fetchFn(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: {
         'User-Agent': 'LoveChat-AutoUpdater',
         'Accept': 'application/vnd.github.v3+json'
@@ -370,5 +388,7 @@ module.exports = {
   checkForUpdates,
   downloadUpdate,
   installUpdateAndRestart,
-  compareSemver
+  compareSemver,
+  parseReleaseRedirect,
+  formatBytes
 };

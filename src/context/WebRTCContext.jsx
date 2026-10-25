@@ -988,10 +988,10 @@ export function WebRTCProvider({ children }) {
             maxFrameRate: currentPreset.maxFps || 60
           }
         };
-        const audioConstraints = requestSystemAudioFallback ? {
+        const audioConstraints = (streamAudio || requestSystemAudioFallback) ? {
           mandatory: {
             chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId
+            ...(sourceId ? { chromeMediaSourceId: sourceId } : {})
           },
           optional: [
             { echoCancellation: false },
@@ -1007,7 +1007,7 @@ export function WebRTCProvider({ children }) {
           video: videoConstraints
         }).catch(async (err) => {
           if (audioConstraints) {
-            console.warn('[WebRTC] Captura de áudio desktop fallback falhou; tentando vídeo sem áudio:', err);
+            console.warn('[WebRTC] Captura de áudio desktop primária falhou; tentando vídeo sem áudio:', err);
             return navigator.mediaDevices.getUserMedia({
               audio: false,
               video: videoConstraints
@@ -1062,25 +1062,36 @@ export function WebRTCProvider({ children }) {
       }
 
       // Priorização de áudio correta:
-      // - No Electron: WASAPI exclusivo do processo/sistema via AudioWorklet quando ativo
-      // - Para janelas individuais: NUNCA usar rawAudioTrack (loopback Chromium captura todas as janelas do Windows)
-      // - Fallback de tela inteira: áudio do desktop entregue pelo Chromium se for tela cheia
+      // - No Electron: WASAPI exclusivo do processo/sistema via AudioWorklet quando ativo e com chunks
+      // - Áudio nativo do Chromium (rawAudioTrack): loopback em tempo real sem latência adicional
       // - No Navegador Web: áudio da aba/sistema capturado pelo getDisplayMedia
       let audioTrackToSend = null;
       const rawAudioTrack = stream.getAudioTracks()[0] || null;
 
       if (isElectron) {
-        const isWindowSource = typeof sourceId === 'string' && sourceId.startsWith('window:');
         const wasapiAudioTrack = streamAudio && useNativeAudio ? audioWorkletManager.getMixedAudioTrack() : null;
-        audioTrackToSend = streamAudio
-          ? (wasapiAudioTrack || (!isWindowSource ? rawAudioTrack : null) || createDummyAudioTrack())
-          : createDummyAudioTrack();
+        if (streamAudio) {
+          if (wasapiAudioTrack && (useNativeAudio || !rawAudioTrack)) {
+            audioTrackToSend = wasapiAudioTrack;
+          } else if (rawAudioTrack) {
+            audioTrackToSend = rawAudioTrack;
+          } else if (wasapiAudioTrack) {
+            audioTrackToSend = wasapiAudioTrack;
+          } else {
+            audioTrackToSend = createDummyAudioTrack();
+          }
+        } else {
+          audioTrackToSend = createDummyAudioTrack();
+        }
       } else {
-        audioTrackToSend = rawAudioTrack || createDummyAudioTrack();
+        audioTrackToSend = streamAudio ? (rawAudioTrack || createDummyAudioTrack()) : createDummyAudioTrack();
       }
 
-      if (audioTrackToSend && 'contentHint' in audioTrackToSend) {
-        audioTrackToSend.contentHint = 'music';
+      if (audioTrackToSend) {
+        audioTrackToSend.enabled = true;
+        if ('contentHint' in audioTrackToSend) {
+          audioTrackToSend.contentHint = 'music';
+        }
       }
 
       // Verificar se chamada anterior ainda está ativa para realizar In-Flight Replace

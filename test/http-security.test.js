@@ -162,3 +162,92 @@ test('8. /api/my-ip responde com sucesso para clientes na rede privada / ZeroTie
   assert.ok(data.ip, 'Deve retornar IP');
   assert.ok(data.hostName, 'Deve retornar hostName para descoberta');
 });
+
+test('9. isPrivateIp valida corretamente faixas ZeroTier, VPN, LAN e rejeita IPs públicos', () => {
+  const { isPrivateIp } = require('../server.js');
+
+  // Localhost & Loopback
+  assert.strictEqual(isPrivateIp('127.0.0.1'), true);
+  assert.strictEqual(isPrivateIp('::1'), true);
+  assert.strictEqual(isPrivateIp('::ffff:127.0.0.1'), true);
+  assert.strictEqual(isPrivateIp('localhost'), true);
+
+  // ZeroTier & VPN (10.x.x.x, 28.x.x.x)
+  assert.strictEqual(isPrivateIp('10.147.20.5'), true);
+  assert.strictEqual(isPrivateIp('10.244.1.100'), true);
+  assert.strictEqual(isPrivateIp('28.10.20.30'), true);
+
+  // Redes locais LAN (192.168.x.x, 172.16-31.x.x)
+  assert.strictEqual(isPrivateIp('192.168.0.1'), true);
+  assert.strictEqual(isPrivateIp('192.168.191.50'), true);
+  assert.strictEqual(isPrivateIp('172.16.0.1'), true);
+  assert.strictEqual(isPrivateIp('172.22.1.1'), true);
+  assert.strictEqual(isPrivateIp('172.31.255.254'), true);
+
+  // Tailscale CGNAT (100.64.0.0/10)
+  assert.strictEqual(isPrivateIp('100.64.0.1'), true);
+  assert.strictEqual(isPrivateIp('100.127.255.255'), true);
+
+  // Link-Local (169.254.x.x, IPv6 fe80)
+  assert.strictEqual(isPrivateIp('169.254.10.20'), true);
+  assert.strictEqual(isPrivateIp('fe80::1ff:fe23:4567:890a'), true);
+
+  // IPs Públicos da Internet (Devem ser estritamente bloqueados)
+  assert.strictEqual(isPrivateIp('8.8.8.8'), false, 'Google DNS é público');
+  assert.strictEqual(isPrivateIp('1.1.1.1'), false, 'Cloudflare DNS é público');
+  assert.strictEqual(isPrivateIp('203.0.113.195'), false, 'TEST-NET público');
+  assert.strictEqual(isPrivateIp('172.32.0.1'), false, 'Fora da faixa privada 172.16-31');
+  assert.strictEqual(isPrivateIp('100.128.0.1'), false, 'Fora da faixa CGNAT 100.64-127');
+  assert.strictEqual(isPrivateIp(null), false);
+  assert.strictEqual(isPrivateIp(''), false);
+});
+
+test('10. /api/db rejeita atualizações de perfil sem token e aplica profileUpdate com token válido', async () => {
+  // 1. Sem token
+  const resNoAuth = await fetch(`${baseUrl}/api/db`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Forwarded-For': '203.0.113.99'
+    },
+    body: JSON.stringify({ profileUpdate: { id: 'user1', name: 'Hacker' } })
+  });
+  assert.strictEqual(resNoAuth.status, 401, 'Deve exigir token');
+
+  // 2. Atualização válida com token
+  const resGood = await fetch(`${baseUrl}/api/db`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-room-token': validToken
+    },
+    body: JSON.stringify({ profileUpdate: { id: 'user1', name: 'Usuário Teste' } })
+  });
+  assert.strictEqual(resGood.status, 200, 'Deve atualizar com sucesso');
+  const data = await resGood.json();
+  assert.strictEqual(data.profiles.user1.name, 'Usuário Teste');
+});
+
+test('11. /api/db protege notas contra clientes sem token e persiste atualizações', async () => {
+  const resNoAuth = await fetch(`${baseUrl}/api/db`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Forwarded-For': '203.0.113.99'
+    },
+    body: JSON.stringify({ notes: 'Segredo' })
+  });
+  assert.strictEqual(resNoAuth.status, 401, 'Notas exigem token');
+
+  const resGood = await fetch(`${baseUrl}/api/db`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-room-token': validToken
+    },
+    body: JSON.stringify({ notes: 'Nota de amor salva com segurança ❤️' })
+  });
+  assert.strictEqual(resGood.status, 200);
+  const data = await resGood.json();
+  assert.strictEqual(data.notes, 'Nota de amor salva com segurança ❤️');
+});

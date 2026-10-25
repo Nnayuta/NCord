@@ -10,7 +10,15 @@ const PREBUFFER_TARGET = 960; // ~20 ms (7.5 blocos de 128) - absorve jitter IPC
 const MAX_HEALTHY_BUFFER = 4800; // 100 ms: descarta excesso para evitar acúmulo de latência
 const IDLE_BLOCKS_BEFORE_REMOVE = 12000; // ~32 segundos de inatividade para liberar fontes secundárias
 
-class WindowAudioProcessor extends AudioWorkletProcessor {
+const BaseAudioWorkletProcessor = typeof AudioWorkletProcessor !== 'undefined'
+  ? AudioWorkletProcessor
+  : class {
+      constructor() {
+        this.port = { onmessage: null };
+      }
+    };
+
+class WindowAudioProcessor extends BaseAudioWorkletProcessor {
   constructor() {
     super();
     this.sources = new Map(); // id -> estado do ring buffer
@@ -206,4 +214,16 @@ class WindowAudioProcessor extends AudioWorkletProcessor {
   }
 }
 
-registerProcessor('window-audio-processor', WindowAudioProcessor);
+if (typeof registerProcessor !== 'undefined') {
+  registerProcessor('window-audio-processor', WindowAudioProcessor);
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    WindowAudioProcessor,
+    BUFFER_SIZE,
+    PREBUFFER_TARGET,
+    MAX_HEALTHY_BUFFER,
+    IDLE_BLOCKS_BEFORE_REMOVE
+  };
+}

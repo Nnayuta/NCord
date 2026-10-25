@@ -1236,6 +1236,7 @@ module.exports = {
   getOrCreateRoomToken,
   regenerateRoomToken,
   isValidToken,
+  isPrivateIp,
   verifyWebSocketClient,
   setWebAccessEnabled,
   getWebAccessEnabled,

@@ -103,10 +103,13 @@ export function ScreenShareCard({
       highpassRef.current.connect(highshelfRef.current);
       highshelfRef.current.connect(gainNodeRef.current);
       gainNodeRef.current.connect(ctx.destination);
+
+      const targetGain = audioMuted ? 0 : screenVolume;
+      gainNodeRef.current.gain.setValueAtTime(targetGain, ctx.currentTime);
     } catch (err) {
       console.warn('[ScreenShareCard] Web Audio API setup:', err);
     }
-  }, [isLocal]);
+  }, [isLocal, audioMuted, screenVolume]);
 
   const tryPlayVideo = () => {
     const vEl = videoRef.current;
@@ -135,25 +138,25 @@ export function ScreenShareCard({
       audioCtxRef.current.resume().catch(() => {});
     }
 
+    // Se Web Audio não estiver inicializado com sucesso, usar o elemento <audio> como fallback
     const aEl = audioRef.current;
-    if (!aEl) return;
+    if (aEl && !gainNodeRef.current) {
+      aEl.muted = audioMuted;
+      try {
+        aEl.volume = Math.min(1.0, Math.max(0, audioMuted ? 0 : screenVolume));
+      } catch (e) {}
 
-    // Se Web Audio estiver ativo, mantemos o elemento mudo para evitar áudio duplicado/eco
-    aEl.muted = gainNodeRef.current ? true : audioMuted;
-    try {
-      aEl.volume = gainNodeRef.current ? 0 : Math.min(1.0, Math.max(0, audioMuted ? 0 : screenVolume));
-    } catch (e) {}
-
-    const promise = aEl.play();
-    if (promise && typeof promise.then === 'function') {
-      promise
-        .then(() => setAudioPlayBlocked(false))
-        .catch((err) => {
-          if (!audioMuted) {
-            console.warn('[ScreenShareCard] Autoplay de áudio bloqueado pelo navegador:', err?.message || err);
-            setAudioPlayBlocked(true);
-          }
-        });
+      const promise = aEl.play();
+      if (promise && typeof promise.then === 'function') {
+        promise
+          .then(() => setAudioPlayBlocked(false))
+          .catch((err) => {
+            if (!audioMuted) {
+              console.warn('[ScreenShareCard] Autoplay de áudio bloqueado pelo navegador:', err?.message || err);
+              setAudioPlayBlocked(true);
+            }
+          });
+      }
     }
   };
 
@@ -240,7 +243,13 @@ export function ScreenShareCard({
 
     setupWebAudio(audioTrack);
 
-    if (aEl) {
+    // Se Web Audio foi configurado e está ativo, NÃO acoplamos o MediaStream
+    // ao elemento <audio> como "muted", pois isso silencia o decodificador RTP no Chromium
+    if (gainNodeRef.current && audioCtxRef.current) {
+      if (aEl && aEl.srcObject) {
+        aEl.srcObject = null;
+      }
+    } else if (aEl) {
       const existingTrack = aEl.srcObject?.getAudioTracks()[0];
       if (!aEl.srcObject || existingTrack !== audioTrack) {
         aEl.srcObject = new MediaStream([audioTrack]);
@@ -269,13 +278,9 @@ export function ScreenShareCard({
     }
 
     const aEl = audioRef.current;
-    if (aEl && !isLocal) {
-      if (gainNodeRef.current) {
-        aEl.muted = true;
-      } else {
-        aEl.muted = audioMuted;
-        try { aEl.volume = Math.min(1.0, Math.max(0, targetGain)); } catch (e) {}
-      }
+    if (aEl && !isLocal && !gainNodeRef.current) {
+      aEl.muted = audioMuted;
+      try { aEl.volume = Math.min(1.0, Math.max(0, targetGain)); } catch (e) {}
     }
 
     if (audioMuted) {
@@ -356,7 +361,6 @@ export function ScreenShareCard({
           ref={audioRef}
           autoPlay
           playsInline
-          muted
           style={{ display: 'none', position: 'absolute', pointerEvents: 'none' }}
         />
       )}

@@ -120,7 +120,7 @@ export function ScreenPickerModal({ isOpen, onClose }) {
       await startScreenShare(selected.id, {
         streamAudio,
         useNativeAudio: Boolean(streamAudio && result?.hasProcessAudio),
-        requestSystemAudioFallback: Boolean(isDisplay && streamAudio && result?.success && !result?.hasProcessAudio)
+        requestSystemAudioFallback: Boolean(streamAudio)
       });
     }
     onClose();
